@@ -16,6 +16,8 @@ public partial class MirrorView : UserControl, IRefreshable
     {
         InitializeComponent();
         AppState.CurrentDeviceChanged += UpdateHint;
+        // Selecting a different device must show THAT device's session state.
+        AppState.CurrentDeviceChanged += UpdateSessionsUi;
         ScrcpyService.SessionsChanged += UpdateSessionsUi;
         Loaded += (_, _) => { UpdateHint(); UpdatePreview(); UpdateSessionsUi(); };
 
@@ -98,26 +100,73 @@ public partial class MirrorView : UserControl, IRefreshable
             Toast.Show("لم يتم تحديد جهاز. افتح لوحة الأجهزة وحدّد جهازاً أولاً.", ok: false);
             return;
         }
-        ScrcpyService.Launch(BuildOptions());
-        Toast.Show($"جارٍ بدء البث من {AppState.CurrentDevice.DisplayName}...");
+
+        // Guard the click itself: the button is disabled while a session is active, but a
+        // rapid double-click can land before the first update is dispatched.
+        if (ScrcpyService.IsActive(AppState.CurrentSerial))
+        {
+            Toast.Show("يوجد بث نشط لهذا الجهاز بالفعل.", ok: false);
+            return;
+        }
+
+        StartBtn.IsEnabled = false;                 // immediate, before any await/dispatch
+        var result = ScrcpyService.Launch(BuildOptions());
+
+        if (result.Started)
+            Toast.Show($"جارٍ بدء البث من {AppState.CurrentDevice.DisplayName}...");
+        else
+            Toast.Show(result.Message, ok: false);
+
+        // A refused or failed launch must give the button back.
+        UpdateSessionsUi();
     }
 
     private void Stop_Click(object sender, RoutedEventArgs e)
     {
-        ScrcpyService.StopAll();
-        Toast.Show("تم إيقاف جميع جلسات البث");
+        var serial = AppState.CurrentSerial;
+        if (ScrcpyService.IsActive(serial))
+        {
+            ScrcpyService.Stop(serial);
+            Toast.Show("تم إيقاف بث هذا الجهاز");
+        }
+        else
+        {
+            ScrcpyService.StopAll();
+            Toast.Show("تم إيقاف جميع جلسات البث");
+        }
+        UpdateSessionsUi();
     }
 
+    /// <summary>
+    /// Reflects the SELECTED device's own session state, so switching devices shows that
+    /// device's reality rather than a global count.
+    /// </summary>
     private void UpdateSessionsUi()
     {
-        var n = ScrcpyService.ActiveCount;
-        StopBtn.IsEnabled = n > 0;
-        SessionHint.Text = n switch
+        if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(UpdateSessionsUi); return; }
+
+        var session = ScrcpyService.GetSession(AppState.CurrentSerial);
+        var state = session?.State;
+        var busy = session?.IsActive == true || state == MirrorSessionState.Stopping;
+
+        StartBtn.IsEnabled = AppState.CurrentDevice != null && !busy;
+        StopBtn.IsEnabled = busy || ScrcpyService.ActiveCount > 0;
+
+        var total = ScrcpyService.ActiveCount;
+        SessionHint.Text = state switch
         {
-            0 => "",
-            1 => "● جلسة بث نشطة",
-            _ => $"● جلسات بث نشطة: {n}"
+            MirrorSessionState.Starting => "● جارٍ بدء البث لهذا الجهاز...",
+            MirrorSessionState.Running => "● بث نشط لهذا الجهاز",
+            MirrorSessionState.Stopping => "● جارٍ إيقاف البث...",
+            _ => total switch
+            {
+                0 => "",
+                1 => "● جلسة بث نشطة على جهاز آخر",
+                _ => $"● جلسات بث نشطة: {total}"
+            }
         };
-        SessionHint.Visibility = n == 0 ? Visibility.Collapsed : Visibility.Visible;
+        SessionHint.Visibility = string.IsNullOrEmpty(SessionHint.Text)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     }
 }

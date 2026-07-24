@@ -94,9 +94,20 @@ public partial class DashboardView : UserControl, IRefreshable
         if (dev == null) return;
 
         AppState.SetCurrent(dev);
-        // One-click: launch a balanced "high" session immediately.
-        ScrcpyService.Launch(ScrcpyService.Preset("high", serial));
-        Toast.Show($"جارٍ بدء البث من {dev.DisplayName}...");
+
+        // One-click: launch a balanced "high" session immediately. A second click while the
+        // session is starting must not spawn a second engine.
+        b.IsEnabled = false;
+        try
+        {
+            var result = ScrcpyService.Launch(ScrcpyService.Preset("high", serial));
+            Toast.Show(result.Started ? $"جارٍ بدء البث من {dev.DisplayName}..." : result.Message,
+                result.Started);
+        }
+        finally
+        {
+            b.IsEnabled = true;
+        }
     }
 
     private void Help_Click(object sender, RoutedEventArgs e)

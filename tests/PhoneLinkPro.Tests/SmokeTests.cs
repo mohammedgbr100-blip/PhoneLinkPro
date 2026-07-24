@@ -11,6 +11,7 @@ namespace PhoneLinkPro.Tests;
 /// runs on a real STA WPF thread. xUnit runs MTA, so constructing Windows here would be
 /// fragile; no pixel-based UI assertions are added.
 /// </summary>
+[Collection(GlobalStateCollection.Name)]
 public class SmokeTests
 {
     [Fact] // [REGRESSION] — engine binaries are looked up under engine\ with neutral names

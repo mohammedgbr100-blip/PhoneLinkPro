@@ -25,6 +25,21 @@ public static class DeviceWatcher
         _ = PollAsync();
     }
 
+    /// <summary>
+    /// Stops the poll timer for application shutdown. This changes SCHEDULING only —
+    /// polling and parsing semantics are untouched — so an in-flight poll finishes
+    /// naturally and no further ticks are queued.
+    /// </summary>
+    public static void Stop()
+    {
+        var timer = _timer;
+        _timer = null;
+        try { timer?.Stop(); } catch { }
+    }
+
+    /// <summary>True when the poll timer is scheduled.</summary>
+    internal static bool IsRunning => _timer != null;
+
     /// <summary>Force the next poll to report even if nothing changed (used by manual refresh).</summary>
     public static void Invalidate() => _lastSignature = "\0";
 

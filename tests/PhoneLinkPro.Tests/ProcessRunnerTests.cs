@@ -15,6 +15,7 @@ namespace PhoneLinkPro.Tests;
 /// Isolation contract: bounded-lifetime children only, Log redirected to a temp folder,
 /// no network, no device, no elevation, and an orphan sweep.
 /// </summary>
+[Collection(GlobalStateCollection.Name)]
 public sealed class ProcessRunnerTests : IDisposable
 {
     private static readonly string Cmd =

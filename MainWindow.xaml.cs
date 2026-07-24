@@ -19,6 +19,9 @@ public partial class MainWindow : Window
         LoadBranding();
         AppState.CurrentDeviceChanged += UpdateSidebarDevice;
         Toast.Requested += ShowToast;
+        // Deterministic cleanup before the window goes away; Application.OnExit is the
+        // backstop for paths that bypass this (AppLifecycle.Shutdown runs only once).
+        Closing += (_, _) => AppLifecycle.Shutdown();
         Loaded += async (_, _) =>
         {
             // First-run flow: privacy consent (blocking) then onboarding tutorial.

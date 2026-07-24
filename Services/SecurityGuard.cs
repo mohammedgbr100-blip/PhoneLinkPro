@@ -32,6 +32,25 @@ public static class SecurityGuard
 #endif
     }
 
+    /// <summary>
+    /// Stops the periodic check so an orderly shutdown cannot be turned into a FailFast.
+    /// This is a lifecycle hook only — the detection logic itself is unchanged and is
+    /// scheduled for a later batch.
+    /// </summary>
+    public static void Disarm()
+    {
+        Volatile.Write(ref _disarmed, 1);
+#if !DEBUG
+        try { _timer?.Stop(); } catch { }
+        _timer = null;
+#endif
+    }
+
+    private static int _disarmed;
+
+    /// <summary>True once <see cref="Disarm"/> has run.</summary>
+    internal static bool IsDisarmed => Volatile.Read(ref _disarmed) == 1;
+
     private static bool IsBeingAnalyzed()
     {
         try
@@ -58,6 +77,9 @@ public static class SecurityGuard
 
     private static void Bail()
     {
+        // Never FailFast during or after an orderly shutdown.
+        if (IsDisarmed || AppLifecycle.IsShuttingDown) return;
+
         try
         {
             MessageBox.Show("تعذّر تشغيل البرنامج في هذه البيئة.",

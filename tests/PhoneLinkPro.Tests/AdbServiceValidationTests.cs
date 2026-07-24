@@ -11,6 +11,7 @@ namespace PhoneLinkPro.Tests;
 /// test output, so a rejected call is proven by the <see cref="ProcessOutcome.InvalidInput"/>
 /// outcome (a call that did reach adb would report StartFailed instead).
 /// </summary>
+[Collection(GlobalStateCollection.Name)]
 public sealed class AdbServiceValidationTests : IDisposable
 {
     private readonly string _logDir;

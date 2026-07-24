@@ -22,6 +22,26 @@ public static class ToolLocator
     public static bool AdbAvailable => File.Exists(AdbPath);
     public static bool ScrcpyAvailable => File.Exists(ScrcpyPath);
 
+    /// <summary>
+    /// Files that must exist before a mirroring session can start: the engine itself, the
+    /// device bridge it drives, and the device-side server payload it pushes.
+    /// Returns the display names of whatever is missing (empty = ready to launch).
+    /// </summary>
+    public static IReadOnlyList<string> MissingEngineFiles()
+    {
+        var missing = new List<string>();
+        foreach (var (path, name) in new[]
+                 {
+                     (ScrcpyPath, EngineExe),
+                     (AdbPath, BridgeExe),
+                     (ServerPath, ServerDat),
+                 })
+        {
+            if (!File.Exists(path)) missing.Add(name);
+        }
+        return missing;
+    }
+
     private static string Find(string file)
     {
         var candidates = new[]

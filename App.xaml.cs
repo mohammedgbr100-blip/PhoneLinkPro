@@ -40,6 +40,13 @@ public partial class App : Application
         }
     }
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Runs once; safe even if MainWindow already triggered it.
+        Services.AppLifecycle.Shutdown();
+        base.OnExit(e);
+    }
+
     private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Services.Log.Error("Unhandled UI exception", e.Exception);
