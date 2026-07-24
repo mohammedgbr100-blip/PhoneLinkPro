@@ -1,0 +1,44 @@
+<Window x:Class="ScrcpyDeck.Windows.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="حول البرنامج" Height="560" Width="480"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" FlowDirection="RightToLeft"
+        FontFamily="{StaticResource Ui}">
+    <Border Background="{StaticResource Bg}" BorderBrush="#33302A" BorderThickness="1" CornerRadius="14">
+        <Grid Margin="30,24">
+            <Button HorizontalAlignment="Left" VerticalAlignment="Top" Style="{StaticResource ChromeButton}" Click="Close_Click">
+                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/>
+            </Button>
+
+            <StackPanel VerticalAlignment="Center">
+                <Image x:Name="Logo" Width="88" Height="88" HorizontalAlignment="Center"/>
+                <TextBlock FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,14,0,2">
+                    <Run Text="PhoneLink" Foreground="{StaticResource Text}"/><Run Text=" Pro" Foreground="{StaticResource Adb}"/>
+                </TextBlock>
+                <TextBlock Text="الإصدار 1.0" FontSize="12" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+
+                <Border Height="1" Background="#26231C" Margin="40,20"/>
+
+                <TextBlock Text="تصميم وتطوير" FontSize="11" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+                <TextBlock Text="ENG. Mohammed Sattar" FontSize="17" FontWeight="Bold" Foreground="{StaticResource Adb}" HorizontalAlignment="Center" Margin="0,4,0,2"/>
+                <TextBlock Text="Network &amp; Cybersecurity Engineer" FontSize="11" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+
+                <!-- social -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
+                    <Button Style="{StaticResource GhostButton}" Content="Instagram" Margin="4,0" Tag="https://www.instagram.com/m_s_73kg/" Click="Link_Click"/>
+                    <Button Style="{StaticResource GhostButton}" Content="TikTok" Margin="4,0" Tag="https://www.tiktok.com/@mohammed_sattar" Click="Link_Click"/>
+                    <Button Style="{StaticResource GhostButton}" Content="Telegram" Margin="4,0" Tag="https://t.me/m_s_73kg" Click="Link_Click"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
+                    <Button Style="{StaticResource GhostButton}" Content="عرض سياسة الخصوصية" Margin="4,0" Click="Policy_Click"/>
+                    <Button Style="{StaticResource GhostButton}" Content="إشعارات الطرف الثالث" Margin="4,0" Click="Notices_Click"/>
+                </StackPanel>
+
+                <TextBlock Text="© 2026 ENG. Mohammed Sattar — جميع الحقوق محفوظة" FontSize="11" Foreground="#5A5A62" HorizontalAlignment="Center" Margin="0,22,0,0"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

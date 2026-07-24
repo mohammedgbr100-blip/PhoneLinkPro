@@ -1,0 +1,132 @@
+<UserControl x:Class="ScrcpyDeck.Views.LauncherView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FlowDirection="RightToLeft"
+             Background="{StaticResource Bg}">
+    <DockPanel>
+        <!-- footer: live command + actions -->
+        <Border DockPanel.Dock="Bottom" Background="#0B1220" BorderBrush="#1B2740" BorderThickness="0,1,0,0" Padding="24,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="ملخّص الإعدادات" FontSize="10" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}"/>
+                    <TextBlock x:Name="CmdPreview" Foreground="{StaticResource Adb}" FontSize="13"
+                               TextWrapping="Wrap" Margin="0,5,0,0" Text="الإعدادات الافتراضية"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                    <Button x:Name="LaunchBtn" Style="{StaticResource PrimaryButton}" Click="Launch_Click" Padding="24,11">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center"/>
+                            <TextBlock Text="تشغيل" FontWeight="Bold" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="28,24">
+                <TextBlock Text="المشغّل المتقدم" FontSize="24" FontWeight="Bold"/>
+                <TextBlock x:Name="DeviceHint" Text="تحكّم كامل بكل خيارات العرض المتقدمة" FontSize="13" Foreground="{StaticResource Muted}" Margin="0,4,0,18"/>
+
+                <!-- Quality -->
+                <Border Style="{StaticResource Cardish}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="الجودة والأداء" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Scrcpy}" Margin="0,0,0,14"/>
+                        <UniformGrid Columns="3">
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock Text="أقصى دقة (m-)" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                                <TextBox x:Name="MaxSizeBox" Style="{StaticResource Field}" Tag="مثال: 1920 (فارغ = كامل)" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                            <StackPanel Margin="8,0">
+                                <TextBlock Text="معدل البت (b-)" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                                <TextBox x:Name="BitRateBox" Style="{StaticResource Field}" Tag="مثال: 16M" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                            <StackPanel Margin="8,0,0,0">
+                                <TextBlock Text="أقصى إطارات (max-fps)" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                                <TextBox x:Name="FpsBox" Style="{StaticResource Field}" Tag="مثال: 60" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Window & audio -->
+                <Border Style="{StaticResource Cardish}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="النافذة والصوت" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Scrcpy}" Margin="0,0,0,14"/>
+                        <UniformGrid Columns="2">
+                            <CheckBox x:Name="CkFullscreen" Style="{StaticResource Switch}" Content="ملء الشاشة (f-)" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkOnTop" Style="{StaticResource Switch}" Content="دائماً في المقدمة" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkBorderless" Style="{StaticResource Switch}" Content="بدون إطار النافذة" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkNoAudio" Style="{StaticResource Switch}" Content="بدون صوت" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkMic" Style="{StaticResource Switch}" Content="مصدر الصوت: الميكروفون" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkPrintFps" Style="{StaticResource Switch}" Content="طباعة FPS" Margin="0,0,0,12"/>
+                        </UniformGrid>
+                        <StackPanel Margin="0,4,0,0">
+                            <TextBlock Text="عنوان النافذة" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TitleBox" Style="{StaticResource Field}" Tag="عنوان مخصص (اختياري)"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Control & screen -->
+                <Border Style="{StaticResource Cardish}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="التحكم والشاشة" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Scrcpy}" Margin="0,0,0,14"/>
+                        <UniformGrid Columns="2">
+                            <CheckBox x:Name="CkTurnOff" Style="{StaticResource Switch}" Content="إطفاء شاشة الهاتف (S-)" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkStayAwake" Style="{StaticResource Switch}" Content="إبقاء الهاتف مستيقظاً (w-)" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkShowTouches" Style="{StaticResource Switch}" Content="إظهار اللمسات (t-)" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkNoControl" Style="{StaticResource Switch}" Content="عرض فقط (بدون تحكم)" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkPowerOff" Style="{StaticResource Switch}" Content="إطفاء الهاتف عند الإغلاق" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkDisableSaver" Style="{StaticResource Switch}" Content="منع شاشة توقف الحاسوب" Margin="0,0,0,12"/>
+                            <CheckBox x:Name="CkUhid" Style="{StaticResource Switch}" Content="لوحة مفاتيح فعلية (uhid)" Margin="0,0,0,12"/>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Display -->
+                <Border Style="{StaticResource Cardish}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="العرض والشاشة الافتراضية" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Scrcpy}" Margin="0,0,0,14"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="معرّف الشاشة (display-id)" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                                <TextBox x:Name="DisplayIdBox" Style="{StaticResource Field}" Tag="مثال: 0 (فارغ = الرئيسية)" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock Text="شاشة افتراضية جديدة (new-display)" FontSize="12" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                                <TextBox x:Name="NewDisplayBox" Style="{StaticResource Field}" Tag="مثال: 1920x1080 (اتركه للافتراضي)" FlowDirection="LeftToRight"/>
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox x:Name="CkNewDisplay" Style="{StaticResource Switch}" Content="تفعيل شاشة افتراضية جديدة (DeX-style)" Margin="0,14,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Recording -->
+                <Border Style="{StaticResource Cardish}" Margin="0,0,0,4">
+                    <StackPanel>
+                        <TextBlock Text="التسجيل" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Scrcpy}" Margin="0,0,0,14"/>
+                        <CheckBox x:Name="CkRecord" Style="{StaticResource Switch}" Content="تسجيل الجلسة إلى ملف MP4" Margin="0,0,0,12"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="RecordPathBox" Grid.Column="0" Style="{StaticResource Field}" Tag="مسار الحفظ..." FlowDirection="LeftToRight" IsEnabled="False"/>
+                            <Button Grid.Column="1" x:Name="BrowseBtn" Style="{StaticResource GhostButton}" Content="تصفّح" Click="Browse_Click" Margin="8,0,0,0" IsEnabled="False"/>
+                        </Grid>
+                        <CheckBox x:Name="CkNoPlayback" Style="{StaticResource Switch}" Content="تسجيل فقط بدون فتح نافذة العرض" Margin="0,12,0,0" IsEnabled="False"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

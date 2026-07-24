@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>PhoneLinkPro</AssemblyName>
+    <RootNamespace>ScrcpyDeck</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Version>1.1.0</Version>
+    <FileVersion>1.1.0.0</FileVersion>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <Product>PhoneLink Pro</Product>
+    <AssemblyTitle>PhoneLink Pro</AssemblyTitle>
+    <Company>ENG. Mohammed Sattar</Company>
+    <Authors>ENG. Mohammed Sattar</Authors>
+    <Copyright>© 2026 ENG. Mohammed Sattar. All rights reserved.</Copyright>
+    <Description>PhoneLink Pro — لوحة تحكم احترافية للأندرويد</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- Release: no loose .pdb in the distributable -->
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- Runtime assets (window/title icon + brand marks) -->
+  <ItemGroup>
+    <Content Include="Assets\app.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\logo.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\logo_hero.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Third-party notices + licence texts (must ship with build, publish and installer) -->
+  <ItemGroup>
+    <Content Include="THIRD-PARTY-NOTICES.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Licenses\*.txt">
+      <Link>Licenses\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Engine binaries (identity hidden: renamed, placed in an "engine" folder) -->
+  <ItemGroup>
+    <EngineDll Include="..\scrcpy\*.dll" />
+  </ItemGroup>
+
+  <Target Name="CopyEngineToBuild" AfterTargets="Build">
+    <Copy SourceFiles="..\scrcpy\scrcpy.exe"    DestinationFiles="$(OutDir)engine\PhoneLink.Engine.exe" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\scrcpy\adb.exe"       DestinationFiles="$(OutDir)engine\PhoneLink.Bridge.exe" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\scrcpy\scrcpy-server" DestinationFiles="$(OutDir)engine\core.dat"             SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(EngineDll)"            DestinationFolder="$(OutDir)engine"                     SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyEngineToPublish" AfterTargets="Publish">
+    <Copy SourceFiles="..\scrcpy\scrcpy.exe"    DestinationFiles="$(PublishDir)engine\PhoneLink.Engine.exe" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\scrcpy\adb.exe"       DestinationFiles="$(PublishDir)engine\PhoneLink.Bridge.exe" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\scrcpy\scrcpy-server" DestinationFiles="$(PublishDir)engine\core.dat"             SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(EngineDll)"            DestinationFolder="$(PublishDir)engine"                     SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

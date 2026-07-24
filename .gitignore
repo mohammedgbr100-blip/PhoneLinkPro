@@ -1,0 +1,82 @@
+# ============================================================
+#  PhoneLink Pro — .gitignore
+#  Visual Studio / C# / WPF / .NET 9 / Inno Setup / Windows
+# ============================================================
+
+# ---- .NET build output ----
+bin/
+obj/
+[Bb]uild/
+[Oo]ut/
+
+# Generated publish output (self-contained folder publish lives under bin/)
+publish/
+[Pp]ublish/
+
+# ---- Generated installer / release artifacts ----
+# Release artifacts are reproducible from source; do not commit them.
+dist/
+*.msi
+*.msix
+
+# ---- Visual Studio / IDE metadata ----
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+.idea/
+*.DotSettings.user
+
+# ---- Rider / ReSharper ----
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# ---- Code signing certificates & secrets (NEVER commit) ----
+*.pfx
+*.p12
+*.pvk
+*.snk
+*.cer
+*.crt
+*.key
+*.pem
+secrets.*
+*secret*
+*.secrets
+
+# ---- Logs ----
+*.log
+logs/
+[Ll]og/
+
+# ---- Crash dumps / diagnostics ----
+*.dmp
+*.mdmp
+crash*.txt
+
+# ---- Temporary Android / device dump files ----
+dumpstate-*.zip
+bugreport*.zip
+*.dumpstate
+
+# ---- Locally generated screen recordings ----
+*.mp4
+*.mkv
+
+# ---- OS / temp cruft ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.temp
+*~
+
+# ---- MSBuild / NuGet ----
+*.binlog
+project.lock.json
+project.fragment.lock.json
+artifacts/

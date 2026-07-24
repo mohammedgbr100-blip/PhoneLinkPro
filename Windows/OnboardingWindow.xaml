@@ -1,0 +1,58 @@
+<Window x:Class="ScrcpyDeck.Windows.OnboardingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="الشرح التعليمي" Height="600" Width="640"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
+        Background="Transparent" FlowDirection="RightToLeft"
+        FontFamily="{StaticResource Ui}">
+    <Border Background="{StaticResource Bg}" BorderBrush="#33302A" BorderThickness="1" CornerRadius="14">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- top bar -->
+            <Grid Grid.Row="0" Margin="22,18,18,0">
+                <TextBlock Text="دليل الاستخدام السريع" FontSize="13" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+                <Button HorizontalAlignment="Left" Style="{StaticResource ChromeButton}" Click="Skip_Click" ToolTip="تخطّي">
+                    <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/>
+                </Button>
+            </Grid>
+
+            <!-- step body -->
+            <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="44,0">
+                <Border Width="76" Height="76" CornerRadius="38" HorizontalAlignment="Center" Background="#211B0E" BorderBrush="{StaticResource Adb}" BorderThickness="1.5">
+                    <TextBlock x:Name="StepNum" Text="1" FontSize="34" FontWeight="Bold" Foreground="{StaticResource Adb}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock x:Name="StepTitle" FontSize="23" FontWeight="Bold" HorizontalAlignment="Center" TextAlignment="Center" Margin="0,18,0,8"/>
+                <TextBlock x:Name="StepDesc" FontSize="14" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="480" LineHeight="22"/>
+
+                <Border Style="{StaticResource Cardish}" Background="#0C0D11" Margin="0,20,0,0" MaxWidth="500" HorizontalAlignment="Center">
+                    <ItemsControl x:Name="StepBullets">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="0,6">
+                                    <TextBlock Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="14" Foreground="{StaticResource Scrcpy}" VerticalAlignment="Top" Margin="0,2,0,0"/>
+                                    <TextBlock Text="{Binding}" FontSize="14" Foreground="{StaticResource Text}" TextWrapping="Wrap" Margin="10,0,0,0" MaxWidth="430"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
+            </StackPanel>
+
+            <!-- footer -->
+            <Grid Grid.Row="2" Margin="24,0,24,22">
+                <StackPanel x:Name="Dots" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" FlowDirection="LeftToRight">
+                    <Button x:Name="BackBtn" Style="{StaticResource GhostButton}" Content="السابق" Click="Back_Click" Visibility="Hidden"/>
+                    <Button x:Name="NextBtn" Style="{StaticResource PrimaryButton}" Content="التالي" Padding="24,10" Margin="8,0,0,0" Click="Next_Click"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
