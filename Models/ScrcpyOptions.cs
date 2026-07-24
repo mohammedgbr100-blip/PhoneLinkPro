@@ -1,4 +1,4 @@
-using System.Text;
+using System.Globalization;
 
 namespace ScrcpyDeck.Models;
 
@@ -43,18 +43,28 @@ public class ScrcpyOptions
     // Perf
     public bool PrintFps { get; set; }
 
-    /// <summary>Build the full scrcpy argument string.</summary>
-    public string BuildArguments()
+    /// <summary>
+    /// Build the scrcpy arguments as separate argv elements.
+    /// <para>
+    /// Every user-controlled value (serial, window title, recording path) is emitted as
+    /// exactly ONE element and handed to <see cref="System.Diagnostics.ProcessStartInfo.ArgumentList"/>
+    /// unmodified, so quotes, spaces, ampersands, semicolons, percent signs, parentheses,
+    /// Arabic and any other Unicode stay literal data and can never become extra options.
+    /// No quoting is performed here — the runtime does the Windows encoding.
+    /// </para>
+    /// The option order is identical to the previous string builder.
+    /// </summary>
+    public IReadOnlyList<string> BuildArgumentList()
     {
-        var a = new StringBuilder();
-        void Flag(string f) => a.Append(f).Append(' ');
-        void Opt(string f, string v) => a.Append(f).Append(' ').Append(v).Append(' ');
+        var a = new List<string>();
+        void Flag(string f) => a.Add(f);
+        void Opt(string f, string v) { a.Add(f); a.Add(v); }
 
         if (!string.IsNullOrWhiteSpace(Serial)) Opt("-s", Serial!);
 
-        if (MaxSize is > 0) Opt("-m", MaxSize.ToString()!);
+        if (MaxSize is > 0) Opt("-m", MaxSize.Value.ToString(CultureInfo.InvariantCulture));
         if (!string.IsNullOrWhiteSpace(VideoBitRate)) Opt("-b", VideoBitRate!);
-        if (MaxFps is > 0) Opt("--max-fps", MaxFps.ToString()!);
+        if (MaxFps is > 0) Opt("--max-fps", MaxFps.Value.ToString(CultureInfo.InvariantCulture));
 
         if (NoAudio) Flag("--no-audio");
         else if (MicAsSource) Flag("--audio-source=mic");
@@ -62,7 +72,7 @@ public class ScrcpyOptions
         if (Fullscreen) Flag("-f");
         if (AlwaysOnTop) Flag("--always-on-top");
         if (Borderless) Flag("--window-borderless");
-        if (!string.IsNullOrWhiteSpace(WindowTitle)) Opt("--window-title", $"\"{WindowTitle}\"");
+        if (!string.IsNullOrWhiteSpace(WindowTitle)) Opt("--window-title", WindowTitle!);
 
         if (TurnScreenOff) Flag("-S");
         if (StayAwake) Flag("-w");
@@ -72,18 +82,18 @@ public class ScrcpyOptions
         if (DisableScreensaver) Flag("--disable-screensaver");
         if (UhidKeyboard) Flag("--keyboard=uhid");
 
-        if (DisplayId is > 0) Opt("--display-id", DisplayId.ToString()!);
+        if (DisplayId is > 0) Opt("--display-id", DisplayId.Value.ToString(CultureInfo.InvariantCulture));
         if (NewDisplay != null)
-            a.Append(NewDisplay.Length == 0 ? "--new-display" : $"--new-display={NewDisplay}").Append(' ');
+            a.Add(NewDisplay.Length == 0 ? "--new-display" : $"--new-display={NewDisplay}");
 
         if (Record && !string.IsNullOrWhiteSpace(RecordPath))
         {
-            Opt("--record", $"\"{RecordPath}\"");
+            Opt("--record", RecordPath!);
             if (NoPlaybackWhileRecording) Flag("--no-playback");
         }
 
         if (PrintFps) Flag("--print-fps");
 
-        return a.ToString().Trim();
+        return a;
     }
 }

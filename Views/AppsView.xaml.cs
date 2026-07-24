@@ -97,7 +97,7 @@ public partial class AppsView : UserControl, IRefreshable
         var pkg = Pkg(sender); var s = AppState.CurrentSerial;
         if (pkg == null || s == null) return;
         var r = await AdbService.ForceStopAsync(s, pkg);
-        Toast.Show($"تم إيقاف {AppNames.Pretty(pkg)}", r.Success);
+        Toast.Show(r.Success ? $"تم إيقاف {AppNames.Pretty(pkg)}" : "فشل الإيقاف: " + r.Output, r.Success);
     }
 
     private async void Clear_Click(object sender, RoutedEventArgs e)
@@ -106,7 +106,7 @@ public partial class AppsView : UserControl, IRefreshable
         if (pkg == null || s == null) return;
         if (!Confirm($"مسح جميع بيانات:\n{pkg}؟")) return;
         var r = await AdbService.ClearAsync(s, pkg);
-        Toast.Show($"مسح بيانات {AppNames.Pretty(pkg)}", r.Success);
+        Toast.Show(r.Success ? $"مسح بيانات {AppNames.Pretty(pkg)}" : "فشل المسح: " + r.Output, r.Success);
     }
 
     private async void Disable_Click(object sender, RoutedEventArgs e)
@@ -138,7 +138,7 @@ public partial class AppsView : UserControl, IRefreshable
         ShowStatus("جارٍ تثبيت التطبيق...");
         var r = await AdbService.InstallAsync(s, dlg.FileName);
         HideStatus();
-        var ok = r.Success || r.Output.Contains("Success");
+        var ok = r.Success || (r.Outcome == ProcessOutcome.Exited && r.StdOut.Contains("Success"));
         Toast.Show(ok ? "تم التثبيت بنجاح" : "فشل التثبيت: " + r.Output, ok);
         await LoadAsync();
     }

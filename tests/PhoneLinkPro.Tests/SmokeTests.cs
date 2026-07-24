@@ -44,19 +44,19 @@ public class SmokeTests
     [Fact] // [REGRESSION] — presets keep their documented quality ladder
     public void ScrcpyService_PresetsProduceTheExpectedArguments()
     {
-        Assert.Equal("-s ABC -m 1024 -b 4M --max-fps 30",
-            ScrcpyService.Preset("low", "ABC").BuildArguments());
-        Assert.Equal("-s ABC -m 1280 -b 8M --max-fps 60",
-            ScrcpyService.Preset("medium", "ABC").BuildArguments());
-        Assert.Equal("-s ABC -m 1920 -b 16M --max-fps 60",
-            ScrcpyService.Preset("high", "ABC").BuildArguments());
-        Assert.Equal("-s ABC -m 2560 -b 32M --max-fps 60",
-            ScrcpyService.Preset("ultra", "ABC").BuildArguments());
+        Assert.Equal(["-s", "ABC", "-m", "1024", "-b", "4M", "--max-fps", "30"],
+            ScrcpyService.Preset("low", "ABC").BuildArgumentList());
+        Assert.Equal(["-s", "ABC", "-m", "1280", "-b", "8M", "--max-fps", "60"],
+            ScrcpyService.Preset("medium", "ABC").BuildArgumentList());
+        Assert.Equal(["-s", "ABC", "-m", "1920", "-b", "16M", "--max-fps", "60"],
+            ScrcpyService.Preset("high", "ABC").BuildArgumentList());
+        Assert.Equal(["-s", "ABC", "-m", "2560", "-b", "32M", "--max-fps", "60"],
+            ScrcpyService.Preset("ultra", "ABC").BuildArgumentList());
     }
 
     [Fact] // [REGRESSION] — an unknown preset degrades to serial-only
     public void ScrcpyService_UnknownPresetFallsBackToSerialOnly()
-        => Assert.Equal("-s ABC", ScrcpyService.Preset("nonexistent", "ABC").BuildArguments());
+        => Assert.Equal(["-s", "ABC"], ScrcpyService.Preset("nonexistent", "ABC").BuildArgumentList());
 
     [Fact] // [REGRESSION] — no sessions are running in a fresh process
     public void ScrcpyService_StartsWithNoActiveSessions()

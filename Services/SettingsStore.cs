@@ -18,8 +18,16 @@ internal static class SettingsStore
         public bool OnboardingSeen { get; set; }
     }
 
-    /// <summary>The policy revision the user must have accepted for consent to count.</summary>
-    internal const string CurrentConsentVersion = "1.0";
+    /// <summary>
+    /// The policy revision the user must have accepted for consent to count.
+    /// <para>
+    /// This is deliberately derived from <see cref="PolicyText.Version"/> rather than being
+    /// a second independent constant: the two previously drifted apart (PLP-CONSENT-01), so
+    /// an amended policy was never re-presented. Editing the policy version now
+    /// automatically re-prompts every user exactly once.
+    /// </para>
+    /// </summary>
+    internal static string CurrentConsentVersion => PolicyText.Version;
 
     /// <summary>Reads settings from <paramref name="filePath"/>; defaults on any failure.</summary>
     internal static Data Load(string filePath)

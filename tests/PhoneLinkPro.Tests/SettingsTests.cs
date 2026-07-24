@@ -224,45 +224,81 @@ public sealed class SettingsTests : IDisposable
     }
 
     // ================================================================
-    //  PLP-CONSENT-01 (found during Batch 1A — NOT from the original audit)
+    //  PLP-CONSENT-01 — consent must track the policy version
     // ================================================================
-    // The consent gate compares against SettingsStore.CurrentConsentVersion ("1.0"),
-    // which is a DIFFERENT constant from PolicyText.Version. Batch 0 raised the displayed
-    // policy to "1.1" on the assumption that doing so re-prompts for consent. It does not:
-    // the two constants are unrelated, so users who accepted the old policy are never
-    // shown the amended third-party-notice terms.
-    //
-    // Pinned here as current behaviour. Deciding whether to force re-consent is a
-    // behaviour change and therefore out of scope for a tests-first batch.
+    // Previously SettingsStore had its own "1.0" constant, unrelated to PolicyText.Version.
+    // Batch 0 amended the policy to 1.1 but existing users were never re-prompted. Batch 1B
+    // makes PolicyText.Version the single authoritative source.
 
-    [Fact] // [CHARACTERIZATION] PLP-CONSENT-01
-    public void PLPCONSENT01_PolicyVersionAndConsentVersionAreOutOfSync()
-    {
-        Assert.Equal("1.1", PolicyText.Version);
-        Assert.Equal("1.0", SettingsStore.CurrentConsentVersion);
-        Assert.NotEqual(PolicyText.Version, SettingsStore.CurrentConsentVersion);
-    }
+    [Fact] // PLP-CONSENT-01 — one authoritative version, no drift possible
+    public void PLPCONSENT01_ConsentVersionTracksThePolicyVersion()
+        => Assert.Equal(PolicyText.Version, SettingsStore.CurrentConsentVersion);
 
-    [Fact] // [CHARACTERIZATION] PLP-CONSENT-01 — the practical consequence
-    public void PLPCONSENT01_UserWhoAcceptedTheOldPolicyIsNotReprompted()
+    [Fact] // PLP-CONSENT-01 — the amended policy is the current one
+    public void PLPCONSENT01_CurrentPolicyVersionIsTheAmendedOne()
+        => Assert.Equal("1.1", SettingsStore.CurrentConsentVersion);
+
+    [Fact] // PLP-CONSENT-01 — a user who accepted 1.0 is prompted again
+    public void PLPCONSENT01_UserWhoAcceptedTheOldPolicyIsReprompted()
     {
-        // Someone who accepted before the third-party-notice amendment:
         var existing = new SettingsStore.Data { ConsentAccepted = true, ConsentVersion = "1.0" };
 
-        // Still counts as consented, despite the policy text having changed.
-        Assert.True(SettingsStore.IsConsentValid(existing));
+        Assert.False(SettingsStore.IsConsentValid(existing));
     }
 
-    [Fact(Skip = "PLP-CONSENT-01: SettingsStore.CurrentConsentVersion (1.0) does not track " +
-                 "PolicyText.Version (1.1), so the amended third-party-notice policy is never " +
-                 "re-presented to existing users. Asserts the CORRECT post-fix behaviour. " +
-                 "Requires a product decision on forcing re-consent. Target batch: 1B.")]
-    public void PLPCONSENT01_ConsentMustTrackThePolicyVersion_TargetBatch1B()
+    [Fact] // PLP-CONSENT-01 — a user who accepted 1.1 is NOT prompted repeatedly
+    public void PLPCONSENT01_UserWhoAcceptedTheCurrentPolicyIsNotReprompted()
     {
-        Assert.Equal(PolicyText.Version, SettingsStore.CurrentConsentVersion);
+        var current = new SettingsStore.Data
+        {
+            ConsentAccepted = true,
+            ConsentVersion = PolicyText.Version,
+        };
 
-        var oldConsent = new SettingsStore.Data { ConsentAccepted = true, ConsentVersion = "1.0" };
-        Assert.False(SettingsStore.IsConsentValid(oldConsent));
+        Assert.True(SettingsStore.IsConsentValid(current));
+    }
+
+    [Fact] // PLP-CONSENT-01 — acceptance survives a save/load round trip
+    public void PLPCONSENT01_AcceptedVersionIsPreservedAcrossReload()
+    {
+        SettingsStore.Save(_dir, _file, new SettingsStore.Data
+        {
+            ConsentAccepted = true,
+            ConsentVersion = SettingsStore.CurrentConsentVersion,
+        });
+
+        var reloaded = SettingsStore.Load(_file);
+
+        Assert.Equal(PolicyText.Version, reloaded.ConsentVersion);
+        Assert.True(SettingsStore.IsConsentValid(reloaded));
+    }
+
+    [Fact] // PLP-CONSENT-01 — a fresh install gets the current policy, not a legacy one
+    public void PLPCONSENT01_FreshInstallIsNotConsented()
+    {
+        var fresh = SettingsStore.Load(_file);   // no file exists
+
+        Assert.False(SettingsStore.IsConsentValid(fresh));
+        Assert.Null(fresh.ConsentVersion);
+    }
+
+    [Fact] // PLP-CONSENT-01 — corrupt settings fail safe (prompt again, never auto-accept)
+    public void PLPCONSENT01_CorruptSettingsFailSafeToNotConsented()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(_file, "{ this is not json");
+
+        var data = SettingsStore.Load(_file);
+
+        Assert.False(SettingsStore.IsConsentValid(data));
+    }
+
+    [Fact] // PLP-CONSENT-01 — a future/unknown version does not count as consent
+    public void PLPCONSENT01_UnknownVersionIsNotConsent()
+    {
+        var odd = new SettingsStore.Data { ConsentAccepted = true, ConsentVersion = "9.9" };
+
+        Assert.False(SettingsStore.IsConsentValid(odd));
     }
 
     // ---------------------------------------------------------------- serializer shape

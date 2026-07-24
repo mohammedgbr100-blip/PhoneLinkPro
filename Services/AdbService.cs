@@ -1,4 +1,4 @@
-using System.IO;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using ScrcpyDeck.Models;
 
@@ -7,44 +7,67 @@ namespace ScrcpyDeck.Services;
 /// <summary>High-level wrapper around adb.exe for everything the UI needs.</summary>
 public static class AdbService
 {
-    private static Task<ProcessResult> Adb(string args, int timeout = 20000)
+    private static Task<ProcessResult> Adb(IReadOnlyList<string> args, int timeout = 20000)
         => ProcessRunner.RunAsync(ToolLocator.AdbPath, args, timeout);
 
-    /// <summary>Wraps a per-device command with -s [serial].</summary>
-    private static Task<ProcessResult> Adb(string serial, string args, int timeout = 20000)
-        => Adb(WithSerialArgs(serial, args), timeout);
+    /// <summary>Runs a per-device command, validating the serial before launching anything.</summary>
+    private static Task<ProcessResult> AdbForDevice(
+        string serial, IReadOnlyList<string> args, int timeout = 20000)
+    {
+        if (!AdbInput.TryValidateSerial(serial, out var error))
+            return Task.FromResult(ProcessResult.Invalid(error));
+
+        return Adb(WithSerialArgs(serial, args), timeout);
+    }
 
     // ---------------- argument construction (pure, testable) ----------------
-    // These build the exact argument strings the async wrappers below pass to adb.
-    // Extracted verbatim so the regression suite can pin current behaviour.
+    // Every element below becomes one ProcessStartInfo.ArgumentList entry, so no value can
+    // ever introduce an additional adb argument.
 
-    internal static string WithSerialArgs(string serial, string args) => $"-s {serial} {args}";
+    internal static IReadOnlyList<string> WithSerialArgs(string serial, IReadOnlyList<string> args)
+    {
+        var list = new List<string>(args.Count + 2) { "-s", serial };
+        list.AddRange(args);
+        return list;
+    }
 
-    internal const string DevicesArgs = "devices -l";
-    internal const string StartServerArgs = "start-server";
-    internal const string KillServerArgs = "kill-server";
+    internal static readonly string[] DevicesArgs = ["devices", "-l"];
+    internal static readonly string[] StartServerArgs = ["start-server"];
+    internal static readonly string[] KillServerArgs = ["kill-server"];
 
-    internal static string TcpipArgs(int port) => $"tcpip {port}";
-    internal static string ConnectArgs(string ipPort) => $"connect {ipPort}";
-    internal static string DisconnectArgs(string ipPort) => $"disconnect {ipPort}";
-    internal static string PairArgs(string ipPort, string code) => $"pair {ipPort} {code}";
+    internal static IReadOnlyList<string> TcpipArgs(int port)
+        => ["tcpip", port.ToString(CultureInfo.InvariantCulture)];
+    internal static IReadOnlyList<string> ConnectArgs(string endpoint) => ["connect", endpoint];
+    internal static IReadOnlyList<string> DisconnectArgs(string endpoint) => ["disconnect", endpoint];
+    /// <summary>`adb disconnect` with no target drops every wireless connection.</summary>
+    internal static readonly string[] DisconnectAllArgs = ["disconnect"];
+    internal static IReadOnlyList<string> PairArgs(string endpoint, string code) => ["pair", endpoint, code];
 
-    internal static string PropsArgs =>
-        "shell \"getprop ro.product.model; getprop ro.product.brand; getprop ro.build.version.release\"";
-    internal const string WmSizeArgs = "shell wm size";
-    internal const string BatteryArgs = "shell dumpsys battery";
-    internal const string WifiAddrArgs = "shell ip -f inet addr show wlan0";
-    internal const string WifiRouteArgs = "shell ip route";
+    // `adb shell` hands its arguments to the device's sh, so fixed command tokens are used
+    // wherever possible and only validated/quoted values are interpolated.
+    internal static readonly string[] PropsArgs =
+        ["shell", "getprop ro.product.model; getprop ro.product.brand; getprop ro.build.version.release"];
+    internal static readonly string[] WmSizeArgs = ["shell", "wm", "size"];
+    internal static readonly string[] BatteryArgs = ["shell", "dumpsys", "battery"];
+    internal static readonly string[] WifiAddrArgs = ["shell", "ip", "-f", "inet", "addr", "show", "wlan0"];
+    internal static readonly string[] WifiRouteArgs = ["shell", "ip", "route"];
 
-    internal static string ListPackagesArgs(string scope) => $"shell pm list packages {scope}".Trim();
-    internal static string UninstallArgs(string pkg) => $"uninstall {pkg}";
-    internal static string DisableArgs(string pkg) => $"shell pm disable-user --user 0 {pkg}";
-    internal static string EnableArgs(string pkg) => $"shell pm enable {pkg}";
-    internal static string ClearArgs(string pkg) => $"shell pm clear {pkg}";
-    internal static string ForceStopArgs(string pkg) => $"shell am force-stop {pkg}";
-    internal static string InstallArgs(string apkPath) => $"install -r \"{apkPath}\"";
-    internal static string PushArgs(string local, string remote) => $"push \"{local}\" \"{remote}\"";
-    internal static string PullArgs(string remote, string local) => $"pull \"{remote}\" \"{local}\"";
+    internal static IReadOnlyList<string> ListPackagesArgs(string scope)
+        => string.IsNullOrWhiteSpace(scope)
+            ? ["shell", "pm", "list", "packages"]
+            : ["shell", "pm", "list", "packages", scope];
+
+    internal static IReadOnlyList<string> UninstallArgs(string pkg) => ["uninstall", pkg];
+    internal static IReadOnlyList<string> DisableArgs(string pkg)
+        => ["shell", "pm", "disable-user", "--user", "0", pkg];
+    internal static IReadOnlyList<string> EnableArgs(string pkg) => ["shell", "pm", "enable", pkg];
+    internal static IReadOnlyList<string> ClearArgs(string pkg) => ["shell", "pm", "clear", pkg];
+    internal static IReadOnlyList<string> ForceStopArgs(string pkg) => ["shell", "am", "force-stop", pkg];
+    internal static IReadOnlyList<string> InstallArgs(string apkPath) => ["install", "-r", apkPath];
+    internal static IReadOnlyList<string> PushArgs(string local, string remote) => ["push", local, remote];
+    internal static IReadOnlyList<string> PullArgs(string remote, string local) => ["pull", remote, local];
+
+    // ---------------- server ----------------
 
     public static Task StartServerAsync() => Adb(StartServerArgs, 15000);
     public static Task KillServerAsync() => Adb(KillServerArgs, 8000);
@@ -85,10 +108,10 @@ public static class AdbService
     {
         if (!dev.IsAuthorized) return;
 
-        var props = await Adb(dev.Serial, PropsArgs, 9000);
+        var props = await AdbForDevice(dev.Serial, PropsArgs, 9000);
         ApplyProps(dev, props.StdOut);
 
-        var size = await Adb(dev.Serial, WmSizeArgs, 6000);
+        var size = await AdbForDevice(dev.Serial, WmSizeArgs, 6000);
         var resolution = ParseResolution(size.StdOut);
         if (resolution != null) dev.Resolution = resolution;
 
@@ -121,19 +144,19 @@ public static class AdbService
 
     public static async Task<int> GetBatteryAsync(string serial)
     {
-        var res = await Adb(serial, BatteryArgs, 6000);
+        var res = await AdbForDevice(serial, BatteryArgs, 6000);
         return ParseBatteryLevel(res.StdOut);
     }
 
     /// <summary>Read the device's Wi-Fi (wlan0) IPv4 address, for wireless pairing.</summary>
     public static async Task<string?> GetWifiIpAsync(string serial)
     {
-        var res = await Adb(serial, WifiAddrArgs, 6000);
+        var res = await AdbForDevice(serial, WifiAddrArgs, 6000);
         var ip = ParseWifiIpFromAddr(res.StdOut);
         if (ip != null) return ip;
 
         // Fallback for older devices.
-        var res2 = await Adb(serial, WifiRouteArgs, 6000);
+        var res2 = await AdbForDevice(serial, WifiRouteArgs, 6000);
         return ParseWifiIpFromRoute(res2.StdOut);
     }
 
@@ -152,23 +175,64 @@ public static class AdbService
     }
 
     // ---------------- Wireless connection ----------------
+
     public static Task<ProcessResult> TcpipAsync(string serial, int port = 5555)
-        => Adb(serial, TcpipArgs(port), 10000);
+    {
+        if (!AdbInput.TryValidatePort(port, out var portError))
+            return Task.FromResult(ProcessResult.Invalid(portError));
 
-    public static Task<ProcessResult> ConnectAsync(string ipPort)
-        => Adb(ConnectArgs(ipPort), 12000);
+        return AdbForDevice(serial, TcpipArgs(port), 10000);
+    }
 
-    public static Task<ProcessResult> DisconnectAsync(string ipPort)
-        => Adb(DisconnectArgs(ipPort), 8000);
+    public static Task<ProcessResult> ConnectAsync(string endpoint)
+    {
+        if (!AdbInput.TryValidateEndpoint(endpoint, out var normalized, out var error))
+            return Task.FromResult(ProcessResult.Invalid(error));
 
-    public static Task<ProcessResult> PairAsync(string ipPort, string code)
-        => Adb(PairArgs(ipPort, code), 15000);
+        return Adb(ConnectArgs(normalized), 12000);
+    }
+
+    /// <summary>
+    /// Disconnects a wireless device. An empty endpoint keeps the previous behaviour of
+    /// `adb disconnect` with no argument, which drops every wireless connection.
+    /// </summary>
+    public static Task<ProcessResult> DisconnectAsync(string endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+            return Adb(DisconnectAllArgs, 8000);
+
+        if (!AdbInput.TryValidateEndpoint(endpoint, out var normalized, out var error))
+            return Task.FromResult(ProcessResult.Invalid(error));
+
+        return Adb(DisconnectArgs(normalized), 8000);
+    }
+
+    /// <summary>
+    /// Pairs with a device. The pairing code is a shared secret: the command is logged
+    /// with the code redacted so it never reaches the log file.
+    /// </summary>
+    public static Task<ProcessResult> PairAsync(string endpoint, string code)
+    {
+        if (!AdbInput.TryValidateEndpoint(endpoint, out var normalized, out var error))
+            return Task.FromResult(ProcessResult.Invalid(error));
+        if (!AdbInput.TryValidatePairingCode(code, out var codeError))
+            return Task.FromResult(ProcessResult.Invalid(codeError));
+
+        var command = new ProcessCommand(
+            ToolLocator.AdbPath,
+            PairArgs(normalized, code.Trim()),
+            15000,
+            RedactedDescription: $"adb pair {normalized} ******");
+
+        return ProcessRunner.RunAsync(command);
+    }
 
     // ---------------- App management (pm) ----------------
+
     public static async Task<List<string>> ListPackagesAsync(string serial, string scope)
     {
         // scope: "-3" third-party, "-s" system, "" all
-        var res = await Adb(serial, ListPackagesArgs(scope), 15000);
+        var res = await AdbForDevice(serial, ListPackagesArgs(scope), 15000);
         return ParsePackages(res.StdOut);
     }
 
@@ -185,30 +249,56 @@ public static class AdbService
         return pkgs;
     }
 
+    /// <summary>Runs a package-scoped command after validating both serial and package id.</summary>
+    private static Task<ProcessResult> PackageCommand(
+        string serial, string pkg, Func<string, IReadOnlyList<string>> build, int timeout)
+    {
+        if (!AdbInput.TryValidatePackage(pkg, out var error))
+            return Task.FromResult(ProcessResult.Invalid(error));
+
+        return AdbForDevice(serial, build(pkg), timeout);
+    }
+
     public static Task<ProcessResult> UninstallAsync(string serial, string pkg)
-        => Adb(serial, UninstallArgs(pkg), 20000);
+        => PackageCommand(serial, pkg, UninstallArgs, 20000);
 
     public static Task<ProcessResult> DisableAsync(string serial, string pkg)
-        => Adb(serial, DisableArgs(pkg), 12000);
+        => PackageCommand(serial, pkg, DisableArgs, 12000);
 
     public static Task<ProcessResult> EnableAsync(string serial, string pkg)
-        => Adb(serial, EnableArgs(pkg), 12000);
+        => PackageCommand(serial, pkg, EnableArgs, 12000);
 
     public static Task<ProcessResult> ClearAsync(string serial, string pkg)
-        => Adb(serial, ClearArgs(pkg), 12000);
+        => PackageCommand(serial, pkg, ClearArgs, 12000);
 
     public static Task<ProcessResult> ForceStopAsync(string serial, string pkg)
-        => Adb(serial, ForceStopArgs(pkg), 8000);
+        => PackageCommand(serial, pkg, ForceStopArgs, 8000);
 
     public static Task<ProcessResult> InstallAsync(string serial, string apkPath)
-        => Adb(serial, InstallArgs(apkPath), 120000);
+    {
+        if (string.IsNullOrWhiteSpace(apkPath))
+            return Task.FromResult(ProcessResult.Invalid("لم يتم اختيار ملف."));
+
+        return AdbForDevice(serial, InstallArgs(apkPath), 120000);
+    }
 
     // ---------------- File transfer ----------------
+
     public static Task<ProcessResult> PushAsync(string serial, string local, string remote)
-        => Adb(serial, PushArgs(local, remote), 300000);
+    {
+        if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
+            return Task.FromResult(ProcessResult.Invalid("المسار غير صالح."));
+
+        return AdbForDevice(serial, PushArgs(local, remote), 300000);
+    }
 
     public static Task<ProcessResult> PullAsync(string serial, string remote, string local)
-        => Adb(serial, PullArgs(remote, local), 300000);
+    {
+        if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
+            return Task.FromResult(ProcessResult.Invalid("المسار غير صالح."));
+
+        return AdbForDevice(serial, PullArgs(remote, local), 300000);
+    }
 
     // ---------------- helpers ----------------
     internal static string Capitalize(string s) =>

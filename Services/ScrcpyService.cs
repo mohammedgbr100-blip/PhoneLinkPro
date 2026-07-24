@@ -35,15 +35,8 @@ public static class ScrcpyService
         // Default a branded window title so the mirror window never shows the engine name.
         if (string.IsNullOrWhiteSpace(options.WindowTitle))
             options.WindowTitle = AppState.CurrentDevice?.DisplayName ?? "PhoneLink Pro";
-        var p = ProcessRunner.Launch(ToolLocator.ScrcpyPath, options.BuildArguments(), EngineEnv());
+        var p = ProcessRunner.Launch(ToolLocator.ScrcpyPath, options.BuildArgumentList(), EngineEnv());
         Track(p, options.Serial);
-        return p;
-    }
-
-    public static Process? LaunchRaw(string arguments)
-    {
-        var p = ProcessRunner.Launch(ToolLocator.ScrcpyPath, arguments, EngineEnv());
-        Track(p, null);
         return p;
     }
 

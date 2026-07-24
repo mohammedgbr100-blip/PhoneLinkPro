@@ -42,7 +42,7 @@ public partial class WirelessView : UserControl, IRefreshable
 
             Log("• تفعيل الوضع اللاسلكي على الجهاز...");
             var tcp = await AdbService.TcpipAsync(usb.Serial, 5555);
-            if (!tcp.Success && !tcp.Output.Contains("restarting"))
+            if (!tcp.Success && !(tcp.Outcome == ProcessOutcome.Exited && tcp.StdOut.Contains("restarting")))
                 Log("  ملاحظة: " + tcp.Output);
 
             await Task.Delay(1500);
@@ -52,7 +52,9 @@ public partial class WirelessView : UserControl, IRefreshable
             var con = await AdbService.ConnectAsync(target);
             Log("  " + con.Output);
 
-            if (con.Output.Contains("connected"))
+            // adb connect exits 0 even when it fails, so its own stdout decides — but only
+            // when the process actually ran. Any other outcome is a failure by definition.
+            if (con.Outcome == ProcessOutcome.Exited && con.StdOut.Contains("connected"))
             {
                 Log("✓ تم الاتصال لاسلكياً! يمكنك الآن نزع الكابل.");
                 IpBox.Text = ip;
@@ -77,7 +79,8 @@ public partial class WirelessView : UserControl, IRefreshable
         Log($"• الاتصال بـ {target} ...");
         var res = await AdbService.ConnectAsync(target);
         Log("  " + res.Output);
-        if (res.Output.Contains("connected")) await SelectWirelessDevice(target);
+        if (res.Outcome == ProcessOutcome.Exited && res.StdOut.Contains("connected"))
+            await SelectWirelessDevice(target);
     }
 
     private async void Disconnect_Click(object sender, RoutedEventArgs e)
@@ -98,10 +101,11 @@ public partial class WirelessView : UserControl, IRefreshable
             Log("✗ أدخل عنوان الإقران والرمز.");
             return;
         }
+        // The pairing code is a secret: it is never written to the log or the UI.
         Log($"• إقران مع {ip} ...");
         var res = await AdbService.PairAsync(ip, code);
         Log("  " + res.Output);
-        if (res.Output.Contains("Successfully"))
+        if (res.Outcome == ProcessOutcome.Exited && res.StdOut.Contains("Successfully"))
             Log("✓ تم الإقران. الآن استخدم «اتصال يدوي» بعنوان الاتصال (المنفذ يختلف عن منفذ الإقران).");
     }
 
