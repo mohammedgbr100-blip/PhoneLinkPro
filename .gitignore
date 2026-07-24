@@ -47,6 +47,14 @@ secrets.*
 *secret*
 *.secrets
 
+# ---- Test output (VSTest / coverage) ----
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coverlet.json
+coverage*.xml
+coverage*.json
+
 # ---- Logs ----
 *.log
 logs/

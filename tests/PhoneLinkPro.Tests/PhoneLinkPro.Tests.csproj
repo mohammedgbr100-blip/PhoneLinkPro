@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net9.0-windows + UseWPF because the app project is a WPF app and some types
+         under test (AppEntry palette) live behind WPF references. -->
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>PhoneLinkPro.Tests</AssemblyName>
+    <RootNamespace>PhoneLinkPro.Tests</RootNamespace>
+
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <!-- Never ship the tests: they must not appear in application publish output. -->
+    <EnableDefaultPublishItems>false</EnableDefaultPublishItems>
+  </PropertyGroup>
+
+  <!-- UseWPF projects do not get System.IO among the implicit usings. -->
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ScrcpyDeck.csproj" />
+  </ItemGroup>
+
+</Project>

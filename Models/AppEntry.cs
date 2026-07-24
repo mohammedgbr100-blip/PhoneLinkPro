@@ -24,14 +24,29 @@ public class AppEntry
     public Brush BadgeBg { get; }
     public Brush BadgeFg { get; }
 
+    /// <summary>Number of tints available for package badges.</summary>
+    internal static int PaletteSize => Palette.Length;
+
+    /// <summary>The badge monogram for a display name. Extracted verbatim for regression tests.</summary>
+    internal static string MonogramOf(string prettyName)
+        => prettyName.Length > 0 ? prettyName.Substring(0, 1).ToUpper() : "?";
+
+    /// <summary>
+    /// Palette slot for a package. Extracted verbatim for regression tests.
+    /// NOTE: String.GetHashCode is randomised per process on .NET Core and later, so this
+    /// is stable only within a single run — see the P3-01 characterization tests.
+    /// </summary>
+    internal static int BadgeIndex(string package)
+        => Math.Abs(package.GetHashCode(StringComparison.Ordinal)) % Palette.Length;
+
     public AppEntry(string package)
     {
         Package = package;
         PrettyName = AppNames.Pretty(package);
-        Monogram = PrettyName.Length > 0 ? PrettyName.Substring(0, 1).ToUpper() : "?";
+        Monogram = MonogramOf(PrettyName);
 
         // Deterministic tint per package so the list stays stable across refreshes.
-        var c = Palette[Math.Abs(package.GetHashCode(StringComparison.Ordinal)) % Palette.Length];
+        var c = Palette[BadgeIndex(package)];
         var fg = new SolidColorBrush(c);
         var bg = new SolidColorBrush(Color.FromArgb(0x2E, c.R, c.G, c.B));
         fg.Freeze(); bg.Freeze();

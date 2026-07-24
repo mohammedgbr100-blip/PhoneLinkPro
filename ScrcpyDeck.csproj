@@ -20,7 +20,16 @@
     <Copyright>© 2026 ENG. Mohammed Sattar. All rights reserved.</Copyright>
     <Description>PhoneLink Pro — لوحة تحكم احترافية للأندرويد</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The test project lives under tests\ inside this repo. The SDK globs **\*.cs by
+         default, so it must be excluded from the application project entirely. This also
+         keeps test assemblies out of the application publish output. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <!-- Regression tests exercise internal pure helpers extracted for testability. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhoneLinkPro.Tests" />
+  </ItemGroup>
 
   <!-- Release: no loose .pdb in the distributable -->
   <PropertyGroup Condition="'$(Configuration)'=='Release'">

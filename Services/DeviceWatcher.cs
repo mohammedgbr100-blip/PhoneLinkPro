@@ -35,7 +35,7 @@ public static class DeviceWatcher
         try
         {
             var devices = await AdbService.GetDevicesAsync();
-            var sig = string.Join("|", devices.Select(d => $"{d.Serial}:{d.State}"));
+            var sig = Signature(devices);
             if (sig == _lastSignature) return;
             _lastSignature = sig;
 
@@ -49,31 +49,59 @@ public static class DeviceWatcher
         finally { _polling = false; }
     }
 
+    /// <summary>
+    /// The de-duplication key for a poll result. Identical signatures suppress the
+    /// DevicesChanged event. Extracted verbatim for regression tests.
+    /// </summary>
+    internal static string Signature(List<AdbDevice> devices)
+        => string.Join("|", devices.Select(d => $"{d.Serial}:{d.State}"));
+
+    /// <summary>What a poll result implies for the currently selected device.</summary>
+    internal enum CurrentDeviceAction { None, Disconnect, UpdateState, SelectFirst }
+
+    /// <summary>
+    /// Pure decision half of <see cref="SyncAppState"/>: works out what should happen to
+    /// the current device without performing any state change or notification.
+    /// Extracted so the selection rules are testable without a UI thread.
+    /// </summary>
+    internal static (CurrentDeviceAction Action, AdbDevice? Target) DecideCurrentDevice(
+        AdbDevice? current, List<AdbDevice> devices)
+    {
+        if (current != null)
+        {
+            var match = devices.FirstOrDefault(d => d.Serial == current.Serial);
+            if (match == null) return (CurrentDeviceAction.Disconnect, null);
+            if (match.State != current.State) return (CurrentDeviceAction.UpdateState, match);
+            return (CurrentDeviceAction.None, null);
+        }
+
+        var first = devices.FirstOrDefault(d => d.IsAuthorized);
+        return first != null
+            ? (CurrentDeviceAction.SelectFirst, first)
+            : (CurrentDeviceAction.None, null);
+    }
+
     private static void SyncAppState(List<AdbDevice> devices)
     {
         var cur = AppState.CurrentDevice;
-        if (cur != null)
+        var (action, target) = DecideCurrentDevice(cur, devices);
+
+        switch (action)
         {
-            var match = devices.FirstOrDefault(d => d.Serial == cur.Serial);
-            if (match == null)
-            {
+            case CurrentDeviceAction.Disconnect:
                 AppState.SetCurrent(null);
-                Toast.Show($"انقطع الاتصال بالجهاز {cur.DisplayName}", ok: false);
-            }
-            else if (match.State != cur.State)
-            {
-                cur.State = match.State;
+                Toast.Show($"انقطع الاتصال بالجهاز {cur!.DisplayName}", ok: false);
+                break;
+
+            case CurrentDeviceAction.UpdateState:
+                cur!.State = target!.State;
                 AppState.SetCurrent(cur);
-            }
-        }
-        else
-        {
-            var first = devices.FirstOrDefault(d => d.IsAuthorized);
-            if (first != null)
-            {
-                AppState.SetCurrent(first);
-                Toast.Show($"تم اكتشاف جهاز: {first.DisplayName}");
-            }
+                break;
+
+            case CurrentDeviceAction.SelectFirst:
+                AppState.SetCurrent(target);
+                Toast.Show($"تم اكتشاف جهاز: {target!.DisplayName}");
+                break;
         }
     }
 }

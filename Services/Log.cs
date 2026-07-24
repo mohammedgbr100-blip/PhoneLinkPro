@@ -6,8 +6,18 @@ namespace ScrcpyDeck.Services;
 public static class Log
 {
     private static readonly object _sync = new();
-    private static readonly string Dir =
+
+    private static readonly string DefaultDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PhoneLinkPro", "logs");
+
+    /// <summary>
+    /// Test-only redirection of the log directory. Null in production, so the application
+    /// always logs to %AppData%\PhoneLinkPro\logs exactly as before; the regression suite
+    /// sets it so tests never write into the real user profile.
+    /// </summary>
+    internal static string? DirOverride;
+
+    private static string Dir => DirOverride ?? DefaultDir;
 
     private static bool _cleaned;
 
