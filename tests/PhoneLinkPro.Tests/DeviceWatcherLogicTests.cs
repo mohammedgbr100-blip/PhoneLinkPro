@@ -5,217 +5,428 @@ using Xunit;
 namespace PhoneLinkPro.Tests;
 
 /// <summary>
-/// AREA 7 — DeviceWatcher pure logic: the change signature and the current-device
-/// selection rules. DispatcherTimer cadence is deliberately NOT tested.
+/// DEV-01 / DEV-02 — DeviceWatcher discovery, coalescing and reconciliation.
+///
+/// The watcher is a process-wide singleton, so this class joins the global-state collection
+/// and fully resets the watcher around every test. The adb query is replaced by a
+/// controllable provider, so no phone, no adb and no timer are involved.
+///
+/// The Batch 1A characterization tests that pinned "a failed poll looks like no devices"
+/// are REPLACED by the regression tests below.
 /// </summary>
-public class DeviceWatcherLogicTests
+[Collection(GlobalStateCollection.Name)]
+public sealed class DeviceWatcherLogicTests : IDisposable
 {
     private static AdbDevice Dev(string serial, string state = "device", string model = "")
         => new() { Serial = serial, State = state, Model = model };
 
-    // ---------------------------------------------------------------- signature
-
-    [Fact] // [REGRESSION]
-    public void Signature_EncodesSerialAndStatePairs()
+    public DeviceWatcherLogicTests()
     {
-        var sig = DeviceWatcher.Signature([Dev("A"), Dev("B", "offline")]);
-
-        Assert.Equal("A:device|B:offline", sig);
+        DeviceWatcher.ResetForTests();
+        AppState.SetCurrent(null);
     }
 
-    [Fact] // [REGRESSION]
+    public void Dispose()
+    {
+        DeviceWatcher.ResetForTests();
+        AppState.SetCurrent(null);
+    }
+
+    private static async Task WaitFor(Func<bool> predicate, string what, int timeoutMs = 4000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate()) return;
+            await Task.Delay(10);
+        }
+        Assert.Fail($"timed out waiting for: {what}");
+    }
+
+    // ================================================================
+    //  signature / diff (pure)
+    // ================================================================
+
+    [Fact]
+    public void Signature_EncodesSerialAndStatePairs()
+        => Assert.Equal("A:device|B:offline",
+            DeviceWatcher.Signature([Dev("A"), Dev("B", "offline")]));
+
+    [Fact]
     public void Signature_OfEmptyList_IsEmptyString()
         => Assert.Equal("", DeviceWatcher.Signature([]));
 
-    [Fact] // [REGRESSION] — identical device sets de-duplicate
-    public void Signature_IsStableForTheSameDevices()
-    {
-        var a = DeviceWatcher.Signature([Dev("A"), Dev("B")]);
-        var b = DeviceWatcher.Signature([Dev("A"), Dev("B")]);
-
-        Assert.Equal(a, b);
-    }
-
-    [Fact] // [REGRESSION] — a state transition changes the signature
+    [Fact]
     public void Signature_ChangesWhenAStateChanges()
-    {
-        var before = DeviceWatcher.Signature([Dev("A", "unauthorized")]);
-        var after = DeviceWatcher.Signature([Dev("A", "device")]);
+        => Assert.NotEqual(DeviceWatcher.Signature([Dev("A", "unauthorized")]),
+                           DeviceWatcher.Signature([Dev("A", "device")]));
 
-        Assert.NotEqual(before, after);
-    }
-
-    [Fact] // [REGRESSION] — additions and removals change the signature
-    public void Signature_ChangesOnAdditionAndRemoval()
-    {
-        var one = DeviceWatcher.Signature([Dev("A")]);
-        var two = DeviceWatcher.Signature([Dev("A"), Dev("B")]);
-
-        Assert.NotEqual(one, two);
-        Assert.Equal(one, DeviceWatcher.Signature([Dev("A")]));
-    }
-
-    [Fact] // [CHARACTERIZATION] — signature is order-sensitive, so a reordered but
-           // otherwise identical device list re-fires DevicesChanged.
-    public void Signature_IsOrderSensitive()
-    {
-        var ab = DeviceWatcher.Signature([Dev("A"), Dev("B")]);
-        var ba = DeviceWatcher.Signature([Dev("B"), Dev("A")]);
-
-        Assert.NotEqual(ab, ba);
-    }
-
-    [Fact] // [CHARACTERIZATION] — model/battery/version changes do NOT change the
-           // signature, so enrichment-only updates never reach the UI via this path.
+    [Fact]
     public void Signature_IgnoresEverythingExceptSerialAndState()
-    {
-        var lean = DeviceWatcher.Signature([Dev("A")]);
-        var rich = DeviceWatcher.Signature([Dev("A", "device", "Galaxy A52")]);
+        => Assert.Equal(DeviceWatcher.Signature([Dev("A")]),
+                        DeviceWatcher.Signature([Dev("A", "device", "Galaxy A52")]));
 
-        Assert.Equal(lean, rich);
+    [Fact]
+    public void Diff_DetectsAdditionsRemovalsAndStateChanges()
+    {
+        var before = new List<AdbDevice> { Dev("A"), Dev("B", "unauthorized") };
+        var after = new List<AdbDevice> { Dev("B", "device"), Dev("C") };
+
+        var delta = DeviceWatcher.Diff(before, after);
+
+        Assert.Equal(["C"], delta.Added.Select(d => d.Serial));
+        Assert.Equal(["A"], delta.Removed.Select(d => d.Serial));
+        Assert.Equal(["B"], delta.StateChanged.Select(d => d.Serial));
     }
 
     // ================================================================
-    //  DEV-01 / DEV-02 — poll-loop weaknesses
+    //  DEV-01 — a failed poll is not "no devices"
     // ================================================================
-    // The brief attributes two DeviceWatcher defects to this area:
-    //   * a failed/empty poll is treated as "no devices attached";
-    //   * a change can be missed while a previous poll is still running.
-    // Both are characterized below. They are NOT fixed in Batch 1A.
 
-    [Fact] // [CHARACTERIZATION] DEV-01/DEV-02 — an empty result is indistinguishable
-           // from a genuine "nothing attached" result.
-    public void DEV01_EmptyPollResult_LooksIdenticalToNoDevicesAttached()
+    [Theory] // every failure outcome must be reported as UNKNOWN, never as empty
+    [InlineData(DeviceDiscoveryOutcome.TimedOut)]
+    [InlineData(DeviceDiscoveryOutcome.Cancelled)]
+    [InlineData(DeviceDiscoveryOutcome.StartFailed)]
+    [InlineData(DeviceDiscoveryOutcome.AdbError)]
+    [InlineData(DeviceDiscoveryOutcome.Unusable)]
+    public void DEV01_FailureOutcomesAreDistinguishableFromAnEmptySuccess(DeviceDiscoveryOutcome outcome)
     {
-        // AdbService.GetDevicesAsync returns an empty list both when adb reports no
-        // devices AND when adb produced no parsable stdout (tool missing, server dead,
-        // command timed out — RunAsync swallows all of these into an empty StdOut).
-        var genuinelyEmpty = AdbService.ParseDeviceList("List of devices attached\n");
-        var failedCall = AdbService.ParseDeviceList("");   // what a timeout/crash yields
+        var failure = DeviceDiscoveryResult.Failure(outcome, "diag");
+        var emptySuccess = DeviceDiscoveryResult.Success([]);
 
-        Assert.Empty(genuinelyEmpty);
-        Assert.Empty(failedCall);
-        Assert.Equal(DeviceWatcher.Signature(genuinelyEmpty), DeviceWatcher.Signature(failedCall));
+        Assert.True(failure.IsUnknown);
+        Assert.False(failure.IsSuccess);
 
-        // Consequence: a transient adb failure reports "device disconnected" to the user.
-        var (action, _) = DeviceWatcher.DecideCurrentDevice(Dev("A"), failedCall);
-        Assert.Equal(DeviceWatcher.CurrentDeviceAction.Disconnect, action);
+        Assert.True(emptySuccess.IsSuccess);
+        Assert.False(emptySuccess.IsUnknown);
+        Assert.Empty(emptySuccess.Devices);
     }
 
-    [Fact(Skip = "DEV-01: a failed or timed-out adb call is parsed as an empty device list " +
-                 "and reported to the user as a disconnection. Asserts the CORRECT post-fix " +
-                 "behaviour (poll failure must be distinguishable from an empty result and " +
-                 "must not clear the current device). Target batch: 1D.")]
-    public void DEV01_PollFailureMustNotBeTreatedAsDisconnection_TargetBatch1D()
+    [Fact] // DEV-01 — the previously skipped test, now active
+    public async Task DEV01_PollFailureIsNotTreatedAsDisconnection()
     {
-        // After the fix, a failed poll must not produce a Disconnect decision.
-        var failed = AdbService.ParseDeviceList("");
+        var current = Dev("A");
+        AppState.SetCurrent(current);
 
-        var (action, _) = DeviceWatcher.DecideCurrentDevice(Dev("A"), failed);
+        // First a success establishes the confirmed snapshot.
+        var results = new Queue<DeviceDiscoveryResult>();
+        results.Enqueue(DeviceDiscoveryResult.Success([Dev("A")]));
+        results.Enqueue(DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.TimedOut, "timeout"));
 
-        Assert.NotEqual(DeviceWatcher.CurrentDeviceAction.Disconnect, action);
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(results.Dequeue());
+        DeviceWatcher.Start();
+
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 1, "first success applied");
+
+        // Now the failing poll.
+        DeviceWatcher.RequestRefresh();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures > 0, "failure recorded");
+
+        // The device is still confirmed and still selected.
+        Assert.Single(DeviceWatcher.LastConfirmed);
+        Assert.Equal("A", DeviceWatcher.LastConfirmed[0].Serial);
+        Assert.NotNull(AppState.CurrentDevice);
+        Assert.Equal("A", AppState.CurrentSerial);
     }
 
-    [Fact(Skip = "DEV-02: PollAsync returns immediately when a previous poll is still in " +
-                 "flight (_polling guard) and no re-poll is queued, so a device change that " +
-                 "lands during a slow poll is not observed until the next 4s tick — or is " +
-                 "lost entirely if the signature has already advanced. Verifying this needs " +
-                 "the poll loop to be injectable, which is a Batch 1D change. Target batch: 1D.")]
-    public void DEV02_ChangeArrivingDuringAnInFlightPollMustNotBeLost_TargetBatch1D()
+    [Fact] // DEV-01 — a failure raises no DevicesChanged (so no disconnect UI)
+    public async Task DEV01_FailureEmitsNoDevicesChanged()
     {
-        // Requires an injectable poll source; DeviceWatcher currently calls the static
-        // AdbService directly and drives itself from a DispatcherTimer.
-        Assert.Fail("Not implementable until the poll loop is decoupled in Batch 1D.");
+        var results = new Queue<DeviceDiscoveryResult>();
+        results.Enqueue(DeviceDiscoveryResult.Success([Dev("A")]));
+        results.Enqueue(DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.StartFailed, "no adb"));
+
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(results.Dequeue());
+
+        var changes = 0;
+        DeviceWatcher.DevicesChanged += _ => Interlocked.Increment(ref changes);
+
+        DeviceWatcher.Start();
+        await WaitFor(() => Volatile.Read(ref changes) == 1, "first change");
+
+        DeviceWatcher.RequestRefresh();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures > 0, "failure recorded");
+
+        Assert.Equal(1, Volatile.Read(ref changes));   // no second event from the failure
     }
 
-    // ---------------------------------------------------------------- selection rules
+    [Fact] // DEV-01 — a genuine empty success DOES clear devices
+    public async Task DEV01_EmptySuccessIsAppliedAsNoDevices()
+    {
+        var results = new Queue<DeviceDiscoveryResult>();
+        results.Enqueue(DeviceDiscoveryResult.Success([Dev("A")]));
+        results.Enqueue(DeviceDiscoveryResult.Success([]));
 
-    [Fact] // [REGRESSION] — first authorized device is auto-selected when none is current
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(results.Dequeue());
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 1, "device confirmed");
+
+        DeviceWatcher.RequestRefresh();
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 0, "empty success applied");
+
+        Assert.Empty(DeviceWatcher.LastConfirmed);
+    }
+
+    [Fact] // DEV-01 — a later success reconciles correctly after an outage
+    public async Task DEV01_SuccessAfterFailureReconcilesState()
+    {
+        var results = new Queue<DeviceDiscoveryResult>();
+        results.Enqueue(DeviceDiscoveryResult.Success([Dev("A")]));
+        results.Enqueue(DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.TimedOut, null));
+        results.Enqueue(DeviceDiscoveryResult.Success([Dev("A"), Dev("B")]));
+
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(results.Dequeue());
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 1, "first success");
+
+        DeviceWatcher.RequestRefresh();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures > 0, "failure");
+
+        DeviceWatcher.RequestRefresh();
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 2, "recovery success");
+
+        Assert.Equal(0, DeviceWatcher.ConsecutiveFailures);   // backoff reset
+        Assert.Equal(["A", "B"], DeviceWatcher.LastConfirmed.Select(d => d.Serial));
+    }
+
+    // ================================================================
+    //  DEV-02 — no refresh is ever lost
+    // ================================================================
+
+    [Fact] // DEV-02 — the previously skipped test, now active
+    public async Task DEV02_RequestDuringAnInFlightPollTriggersExactlyOneFollowUp()
+    {
+        var gate = new TaskCompletionSource();
+        var calls = 0;
+
+        DeviceWatcher.DiscoveryProvider = async _ =>
+        {
+            var n = Interlocked.Increment(ref calls);
+            if (n == 1) await gate.Task;                 // hold the first query open
+            return DeviceDiscoveryResult.Success([Dev("A")]);
+        };
+
+        DeviceWatcher.Start();
+        await WaitFor(() => Volatile.Read(ref calls) == 1, "first query in flight");
+
+        // Requests arriving while busy must be remembered, not dropped.
+        DeviceWatcher.RequestRefresh();
+        DeviceWatcher.RequestRefresh();
+        DeviceWatcher.RequestRefresh();
+
+        Assert.Equal(1, Volatile.Read(ref calls));       // still no overlap
+
+        gate.SetResult();
+        await WaitFor(() => Volatile.Read(ref calls) == 2, "one coalesced follow-up");
+
+        await Task.Delay(150);
+        Assert.Equal(2, Volatile.Read(ref calls));       // exactly one, not three
+    }
+
+    [Fact] // DEV-02 — queries never overlap
+    public async Task DEV02_QueriesNeverOverlap()
+    {
+        var concurrent = 0;
+        var maxConcurrent = 0;
+        var calls = 0;
+
+        DeviceWatcher.DiscoveryProvider = async _ =>
+        {
+            var now = Interlocked.Increment(ref concurrent);
+            InterlockedMax(ref maxConcurrent, now);
+            await Task.Delay(20);
+            Interlocked.Decrement(ref concurrent);
+            Interlocked.Increment(ref calls);
+            return DeviceDiscoveryResult.Success([Dev("A")]);
+        };
+
+        DeviceWatcher.Start();
+        for (var i = 0; i < 50; i++) DeviceWatcher.RequestRefresh();
+
+        await WaitFor(() => Volatile.Read(ref calls) >= 2, "several polls completed");
+        await Task.Delay(200);
+
+        Assert.Equal(1, Volatile.Read(ref maxConcurrent));
+    }
+
+    [Fact] // DEV-02 — the latest state still reaches the UI after a burst
+    public async Task DEV02_LatestStateIsEventuallyDelivered()
+    {
+        var sequence = 0;
+        DeviceWatcher.DiscoveryProvider = _ =>
+        {
+            var n = Interlocked.Increment(ref sequence);
+            // Each poll reports a different device set.
+            return Task.FromResult(DeviceDiscoveryResult.Success(
+                Enumerable.Range(0, Math.Min(n, 3)).Select(i => Dev("DEV" + i)).ToList()));
+        };
+
+        DeviceWatcher.Start();
+        for (var i = 0; i < 10; i++) DeviceWatcher.RequestRefresh();
+
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 3, "latest snapshot delivered");
+    }
+
+    [Fact] // DEV-02 — the signature is committed only after the snapshot is applied
+    public async Task DEV02_SignatureCommitsOnlyAfterSuccessfulApply()
+    {
+        DeviceWatcher.DiscoveryProvider = _ =>
+            Task.FromResult(DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.AdbError, "boom"));
+
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures > 0, "failure");
+
+        // Nothing was confirmed, so a later success must still be treated as a change.
+        Assert.Empty(DeviceWatcher.LastConfirmed);
+
+        var changes = 0;
+        DeviceWatcher.DevicesChanged += _ => Interlocked.Increment(ref changes);
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(DeviceDiscoveryResult.Success([Dev("A")]));
+
+        DeviceWatcher.RequestRefresh();
+        await WaitFor(() => Volatile.Read(ref changes) == 1, "change emitted after recovery");
+    }
+
+    [Fact] // DEV-02 — Stop cancels pending work and silences events
+    public async Task DEV02_StopDiscardsPendingWorkAndEmitsNoFurtherEvents()
+    {
+        var gate = new TaskCompletionSource();
+        var calls = 0;
+        DeviceWatcher.DiscoveryProvider = async _ =>
+        {
+            var n = Interlocked.Increment(ref calls);
+            if (n == 1) await gate.Task;
+            return DeviceDiscoveryResult.Success([Dev("A")]);
+        };
+
+        var changes = 0;
+        DeviceWatcher.DevicesChanged += _ => Interlocked.Increment(ref changes);
+
+        DeviceWatcher.Start();
+        await WaitFor(() => Volatile.Read(ref calls) == 1, "in flight");
+
+        DeviceWatcher.RequestRefresh();   // pending
+        DeviceWatcher.Stop();             // shutdown begins
+        gate.SetResult();
+
+        await Task.Delay(250);
+
+        Assert.Equal(1, Volatile.Read(ref calls));    // pending follow-up discarded
+        Assert.Equal(0, Volatile.Read(ref changes));  // no event after Stop
+    }
+
+    [Fact] // DEV-02 — refresh requests after Stop are ignored
+    public async Task DEV02_RefreshAfterStopIsIgnored()
+    {
+        var calls = 0;
+        DeviceWatcher.DiscoveryProvider = _ =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(DeviceDiscoveryResult.Success([]));
+        };
+
+        DeviceWatcher.Start();
+        await WaitFor(() => Volatile.Read(ref calls) >= 1, "initial poll");
+        DeviceWatcher.Stop();
+
+        var after = Volatile.Read(ref calls);
+        for (var i = 0; i < 5; i++) DeviceWatcher.RequestRefresh();
+        await Task.Delay(150);
+
+        Assert.Equal(after, Volatile.Read(ref calls));
+    }
+
+    [Fact] // DEV-02 — Start/Stop are idempotent
+    public void DEV02_RepeatedStartAndStopAreSafe()
+    {
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(DeviceDiscoveryResult.Success([]));
+
+        var ex = Record.Exception(() =>
+        {
+            DeviceWatcher.Start();
+            DeviceWatcher.Start();
+            DeviceWatcher.Start();
+            DeviceWatcher.Stop();
+            DeviceWatcher.Stop();
+            DeviceWatcher.Stop();
+        });
+
+        Assert.Null(ex);
+        Assert.False(DeviceWatcher.IsRunning);
+    }
+
+    // ================================================================
+    //  notifications and selection
+    // ================================================================
+
+    [Fact]
     public void NoCurrentDevice_SelectsFirstAuthorized()
     {
-        var devices = new List<AdbDevice> { Dev("A", "unauthorized"), Dev("B"), Dev("C") };
-
-        var (action, target) = DeviceWatcher.DecideCurrentDevice(null, devices);
+        var (action, target) = DeviceWatcher.DecideCurrentDevice(
+            null, [Dev("A", "unauthorized"), Dev("B"), Dev("C")]);
 
         Assert.Equal(DeviceWatcher.CurrentDeviceAction.SelectFirst, action);
         Assert.Equal("B", target!.Serial);
     }
 
-    [Fact] // [REGRESSION] — nothing authorized means nothing selected
+    [Fact]
     public void NoCurrentDevice_AndNoneAuthorized_DoesNothing()
     {
-        var devices = new List<AdbDevice> { Dev("A", "unauthorized"), Dev("B", "offline") };
-
-        var (action, target) = DeviceWatcher.DecideCurrentDevice(null, devices);
+        var (action, _) = DeviceWatcher.DecideCurrentDevice(
+            null, [Dev("A", "unauthorized"), Dev("B", "offline")]);
 
         Assert.Equal(DeviceWatcher.CurrentDeviceAction.None, action);
-        Assert.Null(target);
     }
 
-    [Fact] // [REGRESSION]
-    public void NoCurrentDevice_AndEmptyList_DoesNothing()
+    [Fact] // selection is preserved while the serial is still present
+    public void CurrentDeviceStillPresent_IsPreserved()
     {
-        var (action, _) = DeviceWatcher.DecideCurrentDevice(null, []);
+        var (action, _) = DeviceWatcher.DecideCurrentDevice(Dev("A"), [Dev("A"), Dev("B")]);
 
         Assert.Equal(DeviceWatcher.CurrentDeviceAction.None, action);
     }
 
-    [Fact] // [REGRESSION] — the current device vanishing is a disconnection
-    public void CurrentDeviceRemoved_ReportsDisconnect()
+    [Fact] // a state transition updates without looking like a new device
+    public void CurrentDeviceStateChanged_ReportsUpdateState()
+    {
+        var (action, target) = DeviceWatcher.DecideCurrentDevice(
+            Dev("A", "unauthorized"), [Dev("A", "device")]);
+
+        Assert.Equal(DeviceWatcher.CurrentDeviceAction.UpdateState, action);
+        Assert.Equal("device", target!.State);
+    }
+
+    [Fact] // genuine removal falls back to another authorized device
+    public void CurrentDeviceRemoved_FallsBackToAnotherAuthorizedDevice()
     {
         var (action, target) = DeviceWatcher.DecideCurrentDevice(Dev("A"), [Dev("B")]);
 
+        Assert.Equal(DeviceWatcher.CurrentDeviceAction.SelectFirst, action);
+        Assert.Equal("B", target!.Serial);
+    }
+
+    [Fact] // with nothing left, the selection is cleared
+    public void CurrentDeviceRemoved_WithNoReplacement_ClearsSelection()
+    {
+        var (action, target) = DeviceWatcher.DecideCurrentDevice(Dev("A"), []);
+
         Assert.Equal(DeviceWatcher.CurrentDeviceAction.Disconnect, action);
         Assert.Null(target);
     }
 
-    [Fact] // [REGRESSION] — a state change on the current device is propagated
-    public void CurrentDeviceStateChanged_ReportsUpdateState()
+    [Fact] // an unauthorized-only list is not a valid fallback
+    public void CurrentDeviceRemoved_WithOnlyUnauthorizedLeft_ClearsSelection()
     {
-        var current = Dev("A", "device");
-
-        var (action, target) = DeviceWatcher.DecideCurrentDevice(current, [Dev("A", "offline")]);
-
-        Assert.Equal(DeviceWatcher.CurrentDeviceAction.UpdateState, action);
-        Assert.Equal("offline", target!.State);
-    }
-
-    [Fact] // [REGRESSION] — an unchanged current device produces no action
-    public void CurrentDeviceUnchanged_DoesNothing()
-    {
-        var (action, _) = DeviceWatcher.DecideCurrentDevice(Dev("A"), [Dev("A")]);
-
-        Assert.Equal(DeviceWatcher.CurrentDeviceAction.None, action);
-    }
-
-    [Fact] // [CHARACTERIZATION] — the current device is kept even after it becomes
-           // unauthorized/offline; only removal clears it.
-    public void CurrentDeviceGoingUnauthorized_IsKeptNotCleared()
-    {
-        var (action, target) = DeviceWatcher.DecideCurrentDevice(Dev("A"), [Dev("A", "unauthorized")]);
-
-        Assert.Equal(DeviceWatcher.CurrentDeviceAction.UpdateState, action);
-        Assert.Equal("unauthorized", target!.State);
-    }
-
-    [Fact] // [CHARACTERIZATION] — selection matches on serial only, so a wireless device
-           // that reconnects on a different port is treated as a different device.
-    public void WirelessDeviceOnANewPort_IsTreatedAsADifferentDevice()
-    {
-        var current = Dev("192.168.1.42:5555");
-
-        var (action, _) = DeviceWatcher.DecideCurrentDevice(current, [Dev("192.168.1.42:41237")]);
+        var (action, _) = DeviceWatcher.DecideCurrentDevice(Dev("A"), [Dev("B", "unauthorized")]);
 
         Assert.Equal(DeviceWatcher.CurrentDeviceAction.Disconnect, action);
     }
 
-    [Fact] // [CHARACTERIZATION] DEV-03 knock-on — phantom banner devices are not
-           // authorized, so they never become the selected device.
-    public void DEV03_PhantomBannerDevices_AreNeverAutoSelected()
+    [Fact] // DEV-03 knock-on: banners can no longer influence selection
+    public void PhantomBannerDevicesCannotBeSelected()
     {
         var devices = AdbService.ParseDeviceList(
             "* daemon not running; starting now at tcp:5037\n" +
-            "* daemon started successfully\n" +
             "List of devices attached\n" +
             "R58M12ABCDE  device\n");
 
@@ -223,5 +434,196 @@ public class DeviceWatcherLogicTests
 
         Assert.Equal(DeviceWatcher.CurrentDeviceAction.SelectFirst, action);
         Assert.Equal("R58M12ABCDE", target!.Serial);
+    }
+
+    // ================================================================
+    //  suspend / resume
+    // ================================================================
+
+    [Fact]
+    public async Task Suspend_PausesPollingWithoutClearingDevices()
+    {
+        var calls = 0;
+        DeviceWatcher.DiscoveryProvider = _ =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(DeviceDiscoveryResult.Success([Dev("A")]));
+        };
+
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 1, "device confirmed");
+
+        DeviceWatcher.OnSuspended();
+        var before = Volatile.Read(ref calls);
+
+        for (var i = 0; i < 5; i++) DeviceWatcher.RequestRefresh();
+        await Task.Delay(150);
+
+        Assert.True(DeviceWatcher.IsSuspended);
+        Assert.Equal(before, Volatile.Read(ref calls));       // no polling while asleep
+        Assert.Single(DeviceWatcher.LastConfirmed);           // and no false disconnect
+    }
+
+    [Fact]
+    public async Task Resume_TriggersAnImmediateRefresh()
+    {
+        var calls = 0;
+        DeviceWatcher.DiscoveryProvider = _ =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(DeviceDiscoveryResult.Success([Dev("A")]));
+        };
+        DeviceWatcher.ResumeStabilization = TimeSpan.Zero;
+
+        DeviceWatcher.Start();
+        await WaitFor(() => Volatile.Read(ref calls) >= 1, "initial poll");
+
+        DeviceWatcher.OnSuspended();
+        var before = Volatile.Read(ref calls);
+
+        DeviceWatcher.OnResumed();
+
+        Assert.False(DeviceWatcher.IsSuspended);
+        await WaitFor(() => Volatile.Read(ref calls) > before, "immediate refresh after resume");
+    }
+
+    [Fact]
+    public void RepeatedSuspendAndResume_IsSafe()
+    {
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(DeviceDiscoveryResult.Success([]));
+        DeviceWatcher.Start();
+
+        var ex = Record.Exception(() =>
+        {
+            DeviceWatcher.OnSuspended();
+            DeviceWatcher.OnSuspended();
+            DeviceWatcher.OnResumed();
+            DeviceWatcher.OnResumed();
+        });
+
+        Assert.Null(ex);
+        Assert.False(DeviceWatcher.IsSuspended);
+    }
+
+    [Fact] // resume clears a pre-sleep failure streak so recovery is immediate
+    public async Task Resume_ResetsTheFailureBackoff()
+    {
+        var failing = true;
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(
+            failing ? DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.TimedOut, null)
+                    : DeviceDiscoveryResult.Success([Dev("A")]));
+        DeviceWatcher.ResumeStabilization = TimeSpan.Zero;
+
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures > 0, "failure recorded");
+        Assert.True(DeviceWatcher.CurrentBackoff > TimeSpan.Zero);
+
+        // The device is back after the machine wakes, so the resume poll succeeds. Resume
+        // clears the streak up front, which is what lets that poll run immediately instead
+        // of being throttled by the pre-sleep backoff.
+        failing = false;
+        DeviceWatcher.OnSuspended();
+        DeviceWatcher.OnResumed();
+
+        await WaitFor(() => DeviceWatcher.LastConfirmed.Count == 1,
+            "resume poll ran immediately and succeeded");
+        Assert.Equal(0, DeviceWatcher.ConsecutiveFailures);
+    }
+
+    // ---------------------------------------------------------------- power subscription
+
+    [Fact] // the subscription is taken once and released on Stop (no static handler leak)
+    public void PowerEventSubscription_IsTakenOnceAndReleasedOnStop()
+    {
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(DeviceDiscoveryResult.Success([]));
+
+        DeviceWatcher.Start();
+        Assert.True(DeviceWatcher.IsPowerHooked);
+
+        DeviceWatcher.Start();                       // idempotent
+        Assert.True(DeviceWatcher.IsPowerHooked);
+
+        DeviceWatcher.Stop();
+        Assert.False(DeviceWatcher.IsPowerHooked);
+
+        DeviceWatcher.Stop();                        // idempotent
+        Assert.False(DeviceWatcher.IsPowerHooked);
+    }
+
+    // ================================================================
+    //  backoff
+    // ================================================================
+
+    [Fact]
+    public void Backoff_GrowsWithConsecutiveFailuresUpToTheMaximum()
+    {
+        Assert.Equal(TimeSpan.Zero, DeviceWatcher.BackoffFor(0));
+        Assert.Equal(TimeSpan.FromSeconds(4), DeviceWatcher.BackoffFor(1));
+        Assert.Equal(TimeSpan.FromSeconds(8), DeviceWatcher.BackoffFor(2));
+        Assert.Equal(TimeSpan.FromSeconds(16), DeviceWatcher.BackoffFor(3));
+        Assert.Equal(TimeSpan.FromSeconds(32), DeviceWatcher.BackoffFor(4));
+        Assert.Equal(DeviceWatcher.BackoffMax, DeviceWatcher.BackoffFor(5));
+    }
+
+    [Fact] // it never grows without bound
+    public void Backoff_IsCapped()
+    {
+        foreach (var n in new[] { 6, 10, 100, 1000, int.MaxValue })
+            Assert.Equal(DeviceWatcher.BackoffMax, DeviceWatcher.BackoffFor(n));
+    }
+
+    [Fact]
+    public async Task Backoff_ResetsAfterASuccessfulPoll()
+    {
+        var fail = true;
+        DeviceWatcher.DiscoveryProvider = _ => Task.FromResult(
+            fail ? DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.TimedOut, null)
+                 : DeviceDiscoveryResult.Success([Dev("A")]));
+
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures > 0, "failure");
+        Assert.True(DeviceWatcher.CurrentBackoff > TimeSpan.Zero);
+
+        fail = false;
+        DeviceWatcher.RequestRefresh();               // manual bypasses the backoff
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures == 0, "backoff reset");
+
+        Assert.Equal(TimeSpan.Zero, DeviceWatcher.CurrentBackoff);
+    }
+
+    [Fact] // an automatic poll respects the backoff; a manual refresh bypasses it once
+    public async Task Backoff_SuppressesAutomaticPollsButNotManualRefresh()
+    {
+        var calls = 0;
+        DeviceWatcher.DiscoveryProvider = _ =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.AdbError, null));
+        };
+
+        DeviceWatcher.Start();
+        await WaitFor(() => DeviceWatcher.ConsecutiveFailures >= 1, "first failure");
+
+        var afterFirst = Volatile.Read(ref calls);
+
+        // Automatic polls are throttled while backing off.
+        for (var i = 0; i < 5; i++) DeviceWatcher.RequestRefresh(manual: false);
+        await Task.Delay(120);
+        Assert.Equal(afterFirst, Volatile.Read(ref calls));
+
+        // A user-initiated refresh still goes through.
+        DeviceWatcher.RequestRefresh(manual: true);
+        await WaitFor(() => Volatile.Read(ref calls) > afterFirst, "manual refresh bypassed backoff");
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        int current;
+        do
+        {
+            current = Volatile.Read(ref target);
+            if (value <= current) return;
+        }
+        while (Interlocked.CompareExchange(ref target, value, current) != current);
     }
 }

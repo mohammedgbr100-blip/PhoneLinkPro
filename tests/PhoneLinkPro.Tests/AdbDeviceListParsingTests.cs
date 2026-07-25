@@ -70,17 +70,17 @@ public class AdbDeviceListParsingTests
         Assert.False(d.IsAuthorized);
     }
 
-    [Fact] // [REGRESSION]
-    public void UnknownState_IsPassedThroughUnchanged()
+    [Fact] // [REGRESSION] — a known-but-unmapped state still reaches the UI verbatim
+    public void KnownButUnmappedState_IsPassedThroughUnchanged()
     {
-        const string output = "List of devices attached\nSERIAL123   some-future-state\n";
+        const string output = "List of devices attached\nSERIAL123   rescue\n";
 
         var d = Assert.Single(AdbService.ParseDeviceList(output));
 
-        Assert.Equal("some-future-state", d.State);
+        Assert.Equal("rescue", d.State);
         Assert.False(d.IsAuthorized);
         // StateLabel falls through to the raw state for anything unmapped.
-        Assert.Equal("some-future-state", d.StateLabel);
+        Assert.Equal("rescue", d.StateLabel);
     }
 
     [Fact] // [REGRESSION]
@@ -155,17 +155,9 @@ public class AdbDeviceListParsingTests
 
     // ---------------------------------------------------------------- malformed input
 
-    [Fact] // [CHARACTERIZATION] — any 2+ token line becomes a device today
-    public void MalformedLine_WithTwoTokens_IsAcceptedAsADevice()
-    {
-        const string output = "List of devices attached\nthis is not a device line\n";
-
-        var d = Assert.Single(AdbService.ParseDeviceList(output));
-
-        // Current behaviour: blindly takes token[0] as serial and token[1] as state.
-        Assert.Equal("this", d.Serial);
-        Assert.Equal("is", d.State);
-    }
+    [Fact] // DEV-03 FIXED — prose no longer becomes a device
+    public void MalformedLine_WithTwoTokens_IsIgnored()
+        => Assert.Empty(AdbService.ParseDeviceList("List of devices attached\nthis is not a device line\n"));
 
     [Fact] // [REGRESSION] — tab-separated output still parses
     public void TabSeparatedColumns_AreParsed()
@@ -179,17 +171,13 @@ public class AdbDeviceListParsingTests
     }
 
     // ================================================================
-    //  DEV-03 — daemon banner lines are parsed as phantom devices
+    //  DEV-03 — FIXED: banners and noise never become devices
     // ================================================================
-    // `adb devices -l` emits a start-up banner the first time the daemon launches.
-    // ParseDeviceList only skips the "List of devices" header, so each banner line that
-    // happens to contain two or more whitespace-separated tokens becomes a fake device.
-    //
-    // These tests PIN THE DEFECT so Batch 1D can change it deliberately. They assert the
-    // wrong-but-current output; they do not assert that it is correct.
+    // The Batch 1A characterization tests that pinned phantom `*` devices are REPLACED by
+    // the regression tests below.
 
-    [Fact] // [CHARACTERIZATION] DEV-03 — replace in Batch 1D
-    public void DEV03_DaemonNotRunningBanner_IsParsedAsPhantomDevice()
+    [Fact] // DEV-03 — the test that was skipped in 1A/1B/1C, now active
+    public void DEV03_DaemonBannerIsIgnored()
     {
         const string output = """
             * daemon not running; starting now at tcp:5037
@@ -197,68 +185,146 @@ public class AdbDeviceListParsingTests
             List of devices attached
             R58M12ABCDE            device usb:1-4 model:SM_A525F
             """;
-
-        var devices = AdbService.ParseDeviceList(output);
-
-        // DEFECT: three devices are reported when only one is attached.
-        Assert.Equal(3, devices.Count);
-
-        Assert.Equal("*", devices[0].Serial);
-        Assert.Equal("daemon", devices[0].State);
-        Assert.Equal("*", devices[1].Serial);
-        Assert.Equal("daemon", devices[1].State);
-
-        Assert.Equal("R58M12ABCDE", devices[2].Serial);
-        Assert.Equal("device", devices[2].State);
-
-        // The phantoms are not "authorized", so they do not become the selected device,
-        // but they DO reach the UI list and DO change the DeviceWatcher signature.
-        Assert.Equal(1, devices.Count(d => d.IsAuthorized));
-    }
-
-    [Fact] // [CHARACTERIZATION] DEV-03 — replace in Batch 1D
-    public void DEV03_BannerOnlyOutput_ReportsPhantomDevicesInsteadOfNone()
-    {
-        const string output = """
-            * daemon not running; starting now at tcp:5037
-            * daemon started successfully
-            List of devices attached
-            """;
-
-        var devices = AdbService.ParseDeviceList(output);
-
-        // DEFECT: should be empty; currently two phantom entries.
-        Assert.Equal(2, devices.Count);
-        Assert.All(devices, d => Assert.Equal("*", d.Serial));
-    }
-
-    [Fact] // [CHARACTERIZATION] DEV-03 — replace in Batch 1D
-    public void DEV03_AdbErrorText_IsParsedAsPhantomDevice()
-    {
-        // Text adb can emit into stdout on a bad server handshake.
-        const string output = "adb server version (41) doesn't match this client (39); killing...\n";
 
         var d = Assert.Single(AdbService.ParseDeviceList(output));
 
-        Assert.Equal("adb", d.Serial);
-        Assert.Equal("server", d.State);
+        Assert.Equal("R58M12ABCDE", d.Serial);
+        Assert.Equal("device", d.State);
     }
 
-    [Fact(Skip = "DEV-03: daemon banner lines are parsed as phantom devices. " +
-                 "This asserts the CORRECT post-fix behaviour and must be un-skipped " +
-                 "when the parser is hardened. Target batch: 1D.")]
-    public void DEV03_DaemonBannerShouldBeIgnored_TargetBatch1D()
+    [Fact] // DEV-03 — banner-only output means no devices, not phantoms
+    public void DEV03_BannerOnlyOutput_YieldsNoDevices()
+        => Assert.Empty(AdbService.ParseDeviceList("""
+            * daemon not running; starting now at tcp:5037
+            * daemon started successfully
+            List of devices attached
+            """));
+
+    [Fact] // DEV-03 — a daemon RESTART banner is also ignored
+    public void DEV03_DaemonRestartBanner_IsIgnored()
+        => Assert.Empty(AdbService.ParseDeviceList("""
+            * daemon not running; starting now at tcp:5037
+            * daemon started successfully
+            * server version (41) restarting
+            List of devices attached
+            """));
+
+    [Fact] // DEV-03 — adb handshake error text is not a device
+    public void DEV03_AdbErrorText_IsIgnored()
+        => Assert.Empty(AdbService.ParseDeviceList(
+            "adb server version (41) doesn't match this client (39); killing...\n"));
+
+    [Theory] // DEV-03 — assorted diagnostic noise must never produce a device
+    [InlineData("error: device offline")]
+    [InlineData("adb: error: failed to get feature set")]
+    [InlineData("cannot connect to daemon at tcp:5037: connection refused")]
+    [InlineData("* failed to start daemon")]
+    [InlineData("could not read ok from ADB Server")]
+    [InlineData("Android Debug Bridge version 1.0.41")]
+    public void DEV03_DiagnosticNoise_YieldsNoDevices(string noise)
+        => Assert.Empty(AdbService.ParseDeviceList(noise + "\n"));
+
+    [Fact] // DEV-03 — no device may ever carry the serial "*"
+    public void DEV03_NoPhantomStarDeviceIsEverProduced()
     {
         const string output = """
             * daemon not running; starting now at tcp:5037
             * daemon started successfully
+            * some future banner nobody has seen
             List of devices attached
-            R58M12ABCDE            device usb:1-4 model:SM_A525F
+            R58M12ABCDE   device
             """;
 
         var devices = AdbService.ParseDeviceList(output);
 
-        var d = Assert.Single(devices);
+        Assert.DoesNotContain(devices, d => d.Serial == "*");
+        Assert.Single(devices);
+    }
+
+    [Fact] // DEV-03 — a real device still survives alongside heavy noise
+    public void DEV03_RealDeviceSurvivesSurroundingNoise()
+    {
+        const string output = """
+            * daemon not running; starting now at tcp:5037
+            adb: error: something went wrong
+            List of devices attached
+            R58M12ABCDE            device usb:1-4 product:a52q model:SM_A525F transport_id:3
+            cannot connect to something
+            """;
+
+        var d = Assert.Single(AdbService.ParseDeviceList(output));
+
         Assert.Equal("R58M12ABCDE", d.Serial);
+        Assert.Equal("SM A525F", d.Model);
+    }
+
+    // ---------------------------------------------------------------- unknown states
+
+    [Fact] // DEV-03 — a future adb state on a structurally valid -l line is RETAINED
+    public void UnknownState_WithMetadata_IsRetainedVerbatim()
+    {
+        const string output =
+            "List of devices attached\n" +
+            "R58M12ABCDE   some-future-state usb:1-4 product:a52q model:SM_A525F transport_id:3\n";
+
+        var d = Assert.Single(AdbService.ParseDeviceList(output));
+
+        Assert.Equal("some-future-state", d.State);
+        Assert.False(d.IsAuthorized);
+        Assert.Equal("some-future-state", d.StateLabel);   // shown to the user as-is
+    }
+
+    [Fact] // DEV-03 — an unknown state WITHOUT metadata is not trusted
+    public void UnknownState_WithoutMetadata_IsIgnored()
+        => Assert.Empty(AdbService.ParseDeviceList(
+            "List of devices attached\nR58M12ABCDE   some-future-state\n"));
+
+    // ---------------------------------------------------------------- duplicates
+
+    [Fact] // DEV-03 — duplicates reconcile deterministically: first wins, metadata backfilled
+    public void DuplicateSerial_IsReconciledToOneDevice()
+    {
+        const string output = """
+            List of devices attached
+            R58M12ABCDE   device
+            R58M12ABCDE   device usb:1-4 model:SM_A525F
+            """;
+
+        var d = Assert.Single(AdbService.ParseDeviceList(output));
+
+        Assert.Equal("R58M12ABCDE", d.Serial);
+        Assert.Equal("device", d.State);
+        Assert.Equal("SM A525F", d.Model);      // backfilled from the later duplicate
+    }
+
+    [Fact] // DEV-03 — the FIRST state wins, deterministically
+    public void DuplicateSerial_KeepsTheFirstState()
+    {
+        const string output = """
+            List of devices attached
+            R58M12ABCDE   unauthorized
+            R58M12ABCDE   device
+            """;
+
+        var d = Assert.Single(AdbService.ParseDeviceList(output));
+
+        Assert.Equal("unauthorized", d.State);
+    }
+
+    [Fact] // DEV-03 — the parser must never throw on arbitrary input
+    public void ParserNeverThrowsOnArbitraryText()
+    {
+        string[] hostile =
+        [
+            "", "\0", "\r\n\r\n", "   ", new string('x', 10_000),
+            "* \0 banner", "device", "a b c d e f g h", "::::", "\t\t\t",
+            "List of devices attached\n\0\0\0\n", "😀 😀", "---",
+        ];
+
+        foreach (var text in hostile)
+        {
+            var ex = Record.Exception(() => AdbService.ParseDeviceList(text));
+            Assert.Null(ex);
+        }
     }
 }

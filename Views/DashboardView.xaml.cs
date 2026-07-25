@@ -9,6 +9,7 @@ namespace ScrcpyDeck.Views;
 public partial class DashboardView : UserControl, IRefreshable
 {
     private bool _busy;
+    private List<AdbDevice>? _missedUpdate;
 
     public DashboardView()
     {
@@ -36,8 +37,20 @@ public partial class DashboardView : UserControl, IRefreshable
             }
 
             DeviceWatcher.Invalidate();
-            var devices = await AdbService.GetDevicesAsync();
-            await ApplyDevicesCoreAsync(devices);
+            var result = await AdbService.DiscoverDevicesAsync();
+
+            if (result.IsSuccess)
+            {
+                await ApplyDevicesCoreAsync(result.Devices.ToList());
+            }
+            else
+            {
+                // Device state is unknown, not empty: keep showing what we last confirmed
+                // rather than wrongly reporting that everything unplugged (DEV-01).
+                var known = DeviceWatcher.LastConfirmed;
+                if (known.Count > 0) await ApplyDevicesCoreAsync(known.ToList());
+                else ShowEmpty("تعذّر قراءة قائمة الأجهزة — سيُعاد المحاولة تلقائياً.");
+            }
         }
         finally
         {
@@ -46,12 +59,26 @@ public partial class DashboardView : UserControl, IRefreshable
         }
     }
 
-    /// <summary>Called by DeviceWatcher when devices appear/disappear/change state.</summary>
+    /// <summary>
+    /// Called by DeviceWatcher when devices appear/disappear/change state. A watcher update
+    /// arriving while a manual refresh is running is queued rather than dropped (DEV-02).
+    /// </summary>
     private async Task ApplyDevicesAsync(List<AdbDevice> devices)
     {
-        if (_busy) return;
+        if (_busy) { _missedUpdate = devices; return; }
+
         _busy = true;
-        try { await ApplyDevicesCoreAsync(devices); }
+        try
+        {
+            await ApplyDevicesCoreAsync(devices);
+
+            // Service whatever arrived while we were busy, coalesced to the latest.
+            while (_missedUpdate is { } queued)
+            {
+                _missedUpdate = null;
+                await ApplyDevicesCoreAsync(queued);
+            }
+        }
         finally { _busy = false; }
     }
 

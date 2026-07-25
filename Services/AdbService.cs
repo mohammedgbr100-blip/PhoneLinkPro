@@ -72,34 +72,169 @@ public static class AdbService
     public static Task StartServerAsync() => Adb(StartServerArgs, 15000);
     public static Task KillServerAsync() => Adb(KillServerArgs, 8000);
 
-    /// <summary>List connected devices via `adb devices -l` (without enriched details).</summary>
-    public static async Task<List<AdbDevice>> GetDevicesAsync()
+    /// <summary>
+    /// Queries connected devices via `adb devices -l`, reporting WHY a query failed rather
+    /// than flattening every failure into an empty list (DEV-01).
+    /// </summary>
+    public static async Task<DeviceDiscoveryResult> DiscoverDevicesAsync(CancellationToken ct = default)
     {
-        var res = await Adb(DevicesArgs, 12000);
-        return ParseDeviceList(res.StdOut);
+        var res = await ProcessRunner.RunAsync(
+            new ProcessCommand(ToolLocator.AdbPath, DevicesArgs, 12000), ct);
+
+        switch (res.Outcome)
+        {
+            case ProcessOutcome.TimedOut:
+                return DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.TimedOut, "adb devices timed out");
+
+            case ProcessOutcome.Cancelled:
+                return DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.Cancelled, null);
+
+            case ProcessOutcome.StartFailed:
+            case ProcessOutcome.InvalidInput:
+                return DeviceDiscoveryResult.Failure(
+                    DeviceDiscoveryOutcome.StartFailed, res.FailureDetail ?? "adb could not be started");
+
+            case ProcessOutcome.Exited when res.ExitCode != 0:
+                return DeviceDiscoveryResult.Failure(
+                    DeviceDiscoveryOutcome.AdbError,
+                    $"adb exited with {res.ExitCode}: {Truncate(res.StdErr)}");
+        }
+
+        // Exit code 0. Distinguish "understood the output" from "cannot make sense of it".
+        if (!LooksLikeDeviceListing(res.StdOut))
+            return DeviceDiscoveryResult.Failure(
+                DeviceDiscoveryOutcome.Unusable, $"unrecognised adb output: {Truncate(res.StdOut)}");
+
+        return DeviceDiscoveryResult.Success(ParseDeviceList(res.StdOut));
     }
 
-    /// <summary>Parses the stdout of `adb devices -l`. Extracted verbatim for regression tests.</summary>
-    internal static List<AdbDevice> ParseDeviceList(string stdOut)
+    private static string Truncate(string s)
     {
-        var list = new List<AdbDevice>();
-        foreach (var raw in stdOut.Split('\n'))
+        var t = (s ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return t.Length <= 200 ? t : t[..200];
+    }
+
+    /// <summary>
+    /// True when stdout is recognisably a `devices -l` listing: it either carries the
+    /// header, is empty/banner-only, or yields at least one device line. Anything else
+    /// (a stray error page, a wall of prose) is reported as Unusable rather than silently
+    /// becoming "no devices".
+    /// </summary>
+    internal static bool LooksLikeDeviceListing(string stdOut)
+    {
+        var meaningful = 0;
+        foreach (var raw in (stdOut ?? "").Split('\n'))
         {
             var line = raw.Trim();
             if (line.Length == 0) continue;
-            if (line.StartsWith("List of devices")) continue;
+            if (IsHeader(line)) return true;
+            if (IsBanner(line)) continue;
+            meaningful++;
+        }
+
+        // Nothing but blanks/banners is a legitimate "server just started, no devices yet".
+        if (meaningful == 0) return true;
+
+        return ParseDeviceList(stdOut).Count > 0;
+    }
+
+    // ---------------- device-list parsing (DEV-03) ----------------
+
+    private static bool IsHeader(string line)
+        => line.StartsWith("List of devices", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>adb prefixes daemon banners with '*'. They are never devices.</summary>
+    private static bool IsBanner(string line) => line.StartsWith('*');
+
+    /// <summary>
+    /// Shape check for the first token of a device line. Diagnostic text can put a real
+    /// state word in the second column — "error: device offline" is the classic case — so
+    /// the serial itself must also look plausible: it needs an alphanumeric character and
+    /// must not begin or end with a separator (a trailing ':' means it was a label, not a
+    /// serial).
+    /// </summary>
+    private static bool LooksLikeSerial(string serial)
+    {
+        if (serial.Length == 0) return false;
+        if (!serial.Any(char.IsLetterOrDigit)) return false;
+
+        const string separators = ":.-_";
+        return !separators.Contains(serial[0]) && !separators.Contains(serial[^1]);
+    }
+
+    /// <summary>
+    /// States adb is known to report. An allow-list is used so arbitrary prose cannot
+    /// masquerade as a device.
+    /// </summary>
+    private static readonly HashSet<string> KnownStates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "device", "unauthorized", "offline", "bootloader", "recovery", "sideload",
+        "host", "authorizing", "connecting", "rescue", "unknown", "no",
+    };
+
+    /// <summary>Metadata keys adb appends in `-l` mode; strong evidence a line is a device.</summary>
+    private static readonly Regex MetadataPattern =
+        new(@"\b(product|model|device|transport_id):\S+", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses the stdout of `adb devices -l`.
+    ///
+    /// <para><b>Rules.</b> The header and every '*' banner line are ignored. A line becomes a
+    /// device only when it has at least two whitespace-separated tokens AND either its state
+    /// token is a known adb state, or the line carries adb's `-l` metadata (product:/model:/
+    /// device:/transport_id:). Everything else — error text, prose, partial lines — is
+    /// discarded, so no phantom device can be produced.</para>
+    ///
+    /// <para><b>Unknown states.</b> A structurally valid device line whose state adb has not
+    /// used before is RETAINED with that state verbatim, provided the line carries `-l`
+    /// metadata. This keeps a future adb state visible to the user (AdbDevice.StateLabel
+    /// falls through to the raw value) instead of silently hiding a connected phone.</para>
+    ///
+    /// <para><b>Duplicates.</b> The first record for a serial wins and fixes its position and
+    /// state; metadata missing from it is backfilled from later duplicates.</para>
+    /// </summary>
+    internal static List<AdbDevice> ParseDeviceList(string stdOut)
+    {
+        var list = new List<AdbDevice>();
+        var bySerial = new Dictionary<string, AdbDevice>(StringComparer.Ordinal);
+
+        foreach (var raw in (stdOut ?? "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (IsHeader(line)) continue;
+            if (IsBanner(line)) continue;
 
             var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2) continue;
 
-            var dev = new AdbDevice { Serial = parts[0], State = parts[1] };
+            var serial = parts[0];
+            var state = parts[1];
+            var hasMetadata = MetadataPattern.IsMatch(line);
 
-            // Pull the "model:XXX" / "device:XXX" hints adb already prints.
+            // Structural gate: a known state, or adb's own -l metadata on the line.
+            if (!KnownStates.Contains(state) && !hasMetadata) continue;
+
+            // A serial that could never come from adb is noise, whatever else the line says.
+            if (!AdbInput.TryValidateSerial(serial, out _)) continue;
+            if (!LooksLikeSerial(serial)) continue;
+
+            var model = "";
             var m = Regex.Match(line, @"model:(\S+)");
-            if (m.Success) dev.Model = m.Groups[1].Value.Replace('_', ' ');
+            if (m.Success) model = m.Groups[1].Value.Replace('_', ' ');
 
+            if (bySerial.TryGetValue(serial, out var existing))
+            {
+                // Duplicate: keep the first record, backfill anything it was missing.
+                if (existing.Model.Length == 0 && model.Length > 0) existing.Model = model;
+                continue;
+            }
+
+            var dev = new AdbDevice { Serial = serial, State = state, Model = model };
+            bySerial[serial] = dev;
             list.Add(dev);
         }
+
         return list;
     }
 

@@ -22,8 +22,13 @@ public partial class WirelessView : UserControl, IRefreshable
         try
         {
             LogBox.Text = "بدء التحويل التلقائي...";
-            var devices = await AdbService.GetDevicesAsync();
-            var usb = devices.FirstOrDefault(d => d.IsAuthorized && !d.IsWireless);
+            var discovery = await AdbService.DiscoverDevicesAsync();
+            if (!discovery.IsSuccess)
+            {
+                Log("✗ تعذّر قراءة قائمة الأجهزة. أعد المحاولة بعد قليل.");
+                return;
+            }
+            var usb = discovery.Devices.FirstOrDefault(d => d.IsAuthorized && !d.IsWireless);
             if (usb == null)
             {
                 Log("✗ لم يُعثر على جهاز USB متصل ومصرّح. وصّل الكابل ووافق على تصحيح USB.");
@@ -111,8 +116,8 @@ public partial class WirelessView : UserControl, IRefreshable
 
     private async Task SelectWirelessDevice(string target)
     {
-        var devices = await AdbService.GetDevicesAsync();
-        var dev = devices.FirstOrDefault(d => d.Serial == target);
+        var discovery = await AdbService.DiscoverDevicesAsync();
+        var dev = discovery.Devices.FirstOrDefault(d => d.Serial == target);
         if (dev != null)
         {
             await AdbService.EnrichAsync(dev);

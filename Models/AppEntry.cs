@@ -32,12 +32,18 @@ public class AppEntry
         => prettyName.Length > 0 ? prettyName.Substring(0, 1).ToUpper() : "?";
 
     /// <summary>
-    /// Palette slot for a package. Extracted verbatim for regression tests.
-    /// NOTE: String.GetHashCode is randomised per process on .NET Core and later, so this
-    /// is stable only within a single run — see the P3-01 characterization tests.
+    /// Palette slot for a package.
+    /// <para>
+    /// Uses <see cref="StableHash.Fnv1a32"/> over the package's UTF-8 bytes. String.GetHashCode
+    /// was randomised per process on .NET Core, so a package's badge colour changed on every
+    /// restart (P3-01); FNV-1a is seed-free and therefore identical across processes,
+    /// machines and .NET versions.
+    /// </para>
+    /// The palette size and the 0..PaletteSize-1 index range are unchanged; the specific
+    /// colour a package maps to is a deliberate one-time change.
     /// </summary>
     internal static int BadgeIndex(string package)
-        => Math.Abs(package.GetHashCode(StringComparison.Ordinal)) % Palette.Length;
+        => (int)(StableHash.Fnv1a32(package) % (uint)Palette.Length);
 
     public AppEntry(string package)
     {
