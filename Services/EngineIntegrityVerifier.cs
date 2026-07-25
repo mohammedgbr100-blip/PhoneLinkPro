@@ -301,6 +301,12 @@ public static class EngineIntegrityVerifier
                    (result.Detail != null ? $" detail={result.Detail}" : "");
 
         if (result.IsValid) Log.Info(line);
-        else Log.Warn(line);
+        else
+        {
+            Log.Warn(line);
+            // Feed the support bundle's "recent failures" section (relative path only).
+            AppDiagnostics.RecordFailure("EngineIntegrity", "integrity",
+                $"{result.Status} {result.AffectedPath}".TrimEnd());
+        }
     }
 }

@@ -49,6 +49,12 @@ public static class AppLifecycle
         // 4) Stop the ADB server only when we can prove it is ours.
         Step(sw, "adb server policy", StopOwnedAdbServer);
 
+        // 5) Hand back the single-instance mutex. Deliberately NOT routed through Step():
+        //    Step runs on a pool thread, but ReleaseMutex must run on the acquiring (UI)
+        //    thread. Release() is instant, never throws, and if this process dies without
+        //    reaching it the abandoned-mutex recovery in SingleInstance.Acquire covers it.
+        SingleInstance.Release();
+
         sw.Stop();
         Log.Info($"Shutdown: complete in {sw.ElapsedMilliseconds}ms");
     }

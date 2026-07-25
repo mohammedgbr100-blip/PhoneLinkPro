@@ -172,6 +172,7 @@ public partial class MainWindow : Window
     {
         TitleIcon.Source = LoadPng("logo.png");
         Icon = LoadPng("app.png");
+        VersionBadge.Text = "v" + AppVersionInfo.ShortVersion;
     }
 
     private static BitmapImage? LoadPng(string name)
@@ -217,6 +218,7 @@ public partial class MainWindow : Window
 
         if (view is IRefreshable r) r.OnShown();
         PageHost.Content = view;
+        AppDiagnostics.CurrentOperation = "page:" + page;   // context for global-exception logs
     }
 
     private void UpdateSidebarDevice()

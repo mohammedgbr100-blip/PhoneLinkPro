@@ -10,14 +10,9 @@
     <AssemblyName>PhoneLinkPro</AssemblyName>
     <RootNamespace>ScrcpyDeck</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.1.0</Version>
-    <FileVersion>1.1.0.0</FileVersion>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <Product>PhoneLink Pro</Product>
-    <AssemblyTitle>PhoneLink Pro</AssemblyTitle>
-    <Company>ENG. Mohammed Sattar</Company>
-    <Authors>ENG. Mohammed Sattar</Authors>
-    <Copyright>© 2026 ENG. Mohammed Sattar. All rights reserved.</Copyright>
+    <!-- Version, Product, Company, Copyright: inherited from Directory.Build.props (REL-03,
+         single authoritative source). Do not re-declare version literals here. -->
+    <AssemblyTitle>$(PlpProductName)</AssemblyTitle>
     <Description>PhoneLink Pro — لوحة تحكم احترافية للأندرويد</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- The test project lives under tests\ inside this repo. The SDK globs **\*.cs by

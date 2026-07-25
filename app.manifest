@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
-  <assemblyIdentity version="1.0.0.0" name="ScrcpyDeck.app"/>
+  <!-- Product identity is "PhoneLink Pro" (REL-03): internal project names must not leak
+       into metadata. The win32 manifest identity version is not user-visible and is not
+       templated by MSBuild; the authoritative product version lives in
+       Directory.Build.props and is stamped into the assembly/file version resources. -->
+  <assemblyIdentity version="1.0.0.0" name="PhoneLinkPro.app"/>
 
   <!-- Per-monitor DPI awareness for crisp UI on high-DPI displays -->
   <asmv3:application>

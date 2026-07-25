@@ -12,6 +12,7 @@ public partial class AboutWindow : Window
     public AboutWindow()
     {
         InitializeComponent();
+        VersionText.Text = "الإصدار " + AppVersionInfo.ProductVersion;
         try
         {
             var path = Path.Combine(AppContext.BaseDirectory, "Assets", "app.png");
@@ -53,6 +54,36 @@ public partial class AboutWindow : Window
             return;
         }
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch { }
+    }
+
+    /// <summary>
+    /// Exports the sanitized support bundle (LOG-02) to a user-chosen path. Never throws
+    /// through the UI: every outcome ends in a Toast.
+    /// </summary>
+    private async void ExportDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "حفظ ملف التشخيص",
+            FileName = $"PhoneLinkPro-diagnostics-{DateTime.Now:yyyyMMdd-HHmm}.zip",
+            Filter = "ZIP|*.zip",
+            DefaultExt = ".zip",
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        ExportDiagnosticsBtn.IsEnabled = false;
+        try
+        {
+            var result = await Task.Run(() => SupportBundle.Export(dialog.FileName));
+            Toast.Show(result.Success
+                    ? "تم حفظ ملف التشخيص بنجاح."
+                    : "تعذّر إنشاء ملف التشخيص. جرّب مساراً آخر أو تحقق من المساحة المتوفرة.",
+                ok: result.Success);
+        }
+        finally
+        {
+            ExportDiagnosticsBtn.IsEnabled = true;
+        }
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

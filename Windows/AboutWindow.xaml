@@ -17,7 +17,8 @@
                 <TextBlock FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,14,0,2">
                     <Run Text="PhoneLink" Foreground="{StaticResource Text}"/><Run Text=" Pro" Foreground="{StaticResource Adb}"/>
                 </TextBlock>
-                <TextBlock Text="الإصدار 1.0" FontSize="12" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+                <!-- Text set at runtime from AppVersionInfo (REL-03: no version literals in XAML) -->
+                <TextBlock x:Name="VersionText" FontSize="12" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
 
                 <Border Height="1" Background="#26231C" Margin="40,20"/>
 
@@ -35,6 +36,12 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
                     <Button Style="{StaticResource GhostButton}" Content="عرض سياسة الخصوصية" Margin="4,0" Click="Policy_Click"/>
                     <Button Style="{StaticResource GhostButton}" Content="إشعارات الطرف الثالث" Margin="4,0" Click="Notices_Click"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,0">
+                    <Button x:Name="ExportDiagnosticsBtn" Style="{StaticResource GhostButton}"
+                            Content="تصدير ملف التشخيص" Margin="4,0" Click="ExportDiagnostics_Click"
+                            ToolTip="ينشئ ملف ZIP آمناً للمشاركة مع الدعم — بدون أرقام تسلسلية كاملة أو ملفات شخصية"/>
                 </StackPanel>
 
                 <TextBlock Text="© 2026 ENG. Mohammed Sattar — جميع الحقوق محفوظة" FontSize="11" Foreground="#5A5A62" HorizontalAlignment="Center" Margin="0,22,0,0"/>

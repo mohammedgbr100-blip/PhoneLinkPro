@@ -1,0 +1,42 @@
+<Project>
+
+  <!-- ============================================================
+       SINGLE AUTHORITATIVE PRODUCT VERSION AND IDENTITY (REL-03)
+
+       Every version PhoneLink Pro displays, embeds or ships derives
+       from PlpProductVersion below:
+         - AssemblyVersion / FileVersion / InformationalVersion
+         - the About window and the title-bar badge (read at runtime
+           from the assembly, see Services\AppVersionInfo.cs)
+         - the installer (installer\PhoneLinkPro.iss reads the version
+           FROM THE PUBLISHED EXE via GetVersionNumbersString, so it can
+           never drift and never needs manual editing)
+         - release artifact names and the release manifest (release.ps1)
+
+       The LEGAL CONSENT version is deliberately NOT this value: policy
+       consent is versioned by PolicyText.Version and changes only when
+       the policy text changes (see SettingsStore.CurrentConsentVersion).
+       ============================================================ -->
+  <PropertyGroup>
+    <PlpProductName>PhoneLink Pro</PlpProductName>
+    <PlpProductVersion>1.2.0</PlpProductVersion>
+    <PlpCompany>ENG. Mohammed Sattar</PlpCompany>
+    <PlpCopyright>© 2026 ENG. Mohammed Sattar. All rights reserved.</PlpCopyright>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>$(PlpProductVersion)</Version>
+    <AssemblyVersion>$(PlpProductVersion).0</AssemblyVersion>
+    <FileVersion>$(PlpProductVersion).0</FileVersion>
+    <InformationalVersion>$(PlpProductVersion)</InformationalVersion>
+    <!-- Keep InformationalVersion exactly PlpProductVersion (no "+<sha>" suffix):
+         displayed versions must compare equal across every surface. The commit SHA
+         is recorded in the release manifest instead (release.ps1). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>$(PlpProductName)</Product>
+    <Company>$(PlpCompany)</Company>
+    <Authors>$(PlpCompany)</Authors>
+    <Copyright>$(PlpCopyright)</Copyright>
+  </PropertyGroup>
+
+</Project>

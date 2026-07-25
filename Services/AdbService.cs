@@ -171,8 +171,13 @@ public static class AdbService
     /// </summary>
     internal static bool LooksLikeDeviceListing(string stdOut)
     {
+        // Tolerate a null despite the non-nullable signature (defensive: adb output flows
+        // in from process capture). Hoisting the coalesce keeps flow analysis satisfied
+        // for the ParseDeviceList call below (was CS8604).
+        var text = stdOut ?? "";
+
         var meaningful = 0;
-        foreach (var raw in (stdOut ?? "").Split('\n'))
+        foreach (var raw in text.Split('\n'))
         {
             var line = raw.Trim();
             if (line.Length == 0) continue;
@@ -184,7 +189,7 @@ public static class AdbService
         // Nothing but blanks/banners is a legitimate "server just started, no devices yet".
         if (meaningful == 0) return true;
 
-        return ParseDeviceList(stdOut).Count > 0;
+        return ParseDeviceList(text).Count > 0;
     }
 
     // ---------------- device-list parsing (DEV-03) ----------------
