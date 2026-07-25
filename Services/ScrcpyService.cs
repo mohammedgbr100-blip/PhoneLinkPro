@@ -34,6 +34,14 @@ public static class ScrcpyService
     internal static Func<IReadOnlyList<string>> EngineFileCheck { get; set; }
         = ToolLocator.MissingEngineFiles;
 
+    /// <summary>
+    /// SEC-01: true only when the embedded manifest has confirmed the engine files, so an
+    /// unverified or tampered engine binary is never executed. Swappable for tests, which
+    /// run without the bundled engine; production always consults the real verifier.
+    /// </summary>
+    internal static Func<bool> IntegrityCheck { get; set; }
+        = () => EngineIntegrityVerifier.IsVerifiedValid;
+
     private static readonly object _gate = new();
     private static readonly Dictionary<string, Session> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private static bool _shuttingDown;
@@ -88,6 +96,7 @@ public static class ScrcpyService
         foreach (var s in stale) s.TerminateAndDispose();
         Launcher = SystemProcessLauncher.Instance;
         EngineFileCheck = ToolLocator.MissingEngineFiles;
+        IntegrityCheck = () => EngineIntegrityVerifier.IsVerifiedValid;
         StartupWindow = TimeSpan.FromMilliseconds(1200);
     }
 
@@ -135,6 +144,15 @@ public static class ScrcpyService
         // Default a branded window title so the mirror window never shows the engine name.
         if (string.IsNullOrWhiteSpace(options.WindowTitle))
             options.WindowTitle = AppState.CurrentDevice?.DisplayName ?? "PhoneLink Pro";
+
+        // 0) SEC-01: refuse BEFORE any session exists, so an integrity failure can never
+        //    leave a stale Starting session behind and never executes an engine binary.
+        if (!IntegrityCheck())
+        {
+            Log.Warn("Mirror launch refused: engine integrity is not verified.");
+            return new MirrorLaunchResult(MirrorLaunchStatus.IntegrityBlocked, null,
+                "تعذّر بدء العرض: ملفات البرنامج بحاجة إلى فحص أو إصلاح. أعد تثبيت البرنامج إذا استمرت المشكلة.");
+        }
 
         // 1-2) the engine and its mandatory bundled files must be present.
         var missing = EngineFileCheck();

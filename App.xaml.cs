@@ -17,7 +17,14 @@ public partial class App : Application
             Services.Log.Error("Unobserved task exception", a.Exception);
             a.SetObserved();
         };
-        ScrcpyDeck.Services.SecurityGuard.ArmIfRelease();
+        // Hidden build tool: verify or regenerate the engine integrity manifest, then exit.
+        // Used by the Release publish gate and update-engine-manifest.bat; never runs for
+        // end users (the variable is not set outside the build).
+        if (Services.IntegrityToolMode.TryRun(out var toolExitCode))
+        {
+            Shutdown(toolExitCode);
+            return;
+        }
 
         // Hidden self-test: construct every window to catch XAML/resource errors, then exit.
         if (Environment.GetEnvironmentVariable("PLP_SELFTEST") == "1")
@@ -37,7 +44,12 @@ public partial class App : Application
                 System.IO.File.WriteAllText(log, "FAIL: " + ex);
             }
             Shutdown();
+            return;
         }
+
+        // Begin engine integrity verification in the background so the result is usually
+        // ready before MainWindow needs it; MainWindow awaits this same shared run.
+        _ = Services.EngineIntegrityVerifier.VerifyAsync();
     }
 
     protected override void OnExit(ExitEventArgs e)

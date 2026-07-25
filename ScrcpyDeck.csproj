@@ -31,6 +31,17 @@
     <InternalsVisibleTo Include="PhoneLinkPro.Tests" />
   </ItemGroup>
 
+  <!-- SEC-01: expected engine hashes ride INSIDE the assembly as read-only trusted data,
+       never as a loose editable file beside the user-writable engine folder. The tracked
+       manifest is regenerated only by the explicit developer step update-engine-manifest.bat
+       (normal IDE builds never rewrite it); the Condition lets a fresh clone build once so
+       that step can bootstrap the file. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\engine.manifest"
+                      LogicalName="PhoneLinkPro.engine.manifest"
+                      Condition="Exists('Resources\engine.manifest')" />
+  </ItemGroup>
+
   <!-- Release: no loose .pdb in the distributable -->
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <DebugType>none</DebugType>
@@ -79,6 +90,19 @@
     <Copy SourceFiles="..\scrcpy\adb.exe"       DestinationFiles="$(PublishDir)engine\PhoneLink.Bridge.exe" SkipUnchangedFiles="true" />
     <Copy SourceFiles="..\scrcpy\scrcpy-server" DestinationFiles="$(PublishDir)engine\core.dat"             SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(EngineDll)"            DestinationFolder="$(PublishDir)engine"                     SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- SEC-01 publish gate: a Release publish FAILS when a mandatory engine file is missing
+       or the engine bundle disagrees with the embedded manifest. Runs the freshly published
+       exe in its hidden verify mode (exit 0 = valid), so the exact runtime verification code
+       is what validates the exact publish output — no second implementation to drift.
+       Escape hatch for diagnostics only: -p:PlpSkipPublishIntegrityCheck=true -->
+  <Target Name="VerifyEngineIntegrityAfterPublish" AfterTargets="CopyEngineToPublish"
+          Condition="'$(Configuration)'=='Release' and '$(PlpSkipPublishIntegrityCheck)'!='true'">
+    <Exec Command="&quot;$(PublishDir)$(AssemblyName).exe&quot;"
+          EnvironmentVariables="PLP_INTEGRITY_TOOL=verify" />
+    <Message Importance="high"
+             Text="PhoneLink Pro: engine bundle verified against the embedded integrity manifest." />
   </Target>
 
 </Project>

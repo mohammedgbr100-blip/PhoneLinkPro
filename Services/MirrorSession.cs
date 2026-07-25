@@ -53,6 +53,11 @@ public enum MirrorLaunchStatus
     FailedToStart,
     /// <summary>The application is shutting down; new sessions are refused.</summary>
     ShuttingDown,
+    /// <summary>
+    /// The bundled engine has not passed integrity verification (SEC-01); no session was
+    /// created and no process was started.
+    /// </summary>
+    IntegrityBlocked,
 }
 
 /// <summary>Outcome of a launch attempt, with an Arabic message ready for a Toast.</summary>

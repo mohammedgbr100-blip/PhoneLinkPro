@@ -23,6 +23,7 @@ public sealed class AppShutdownTests : IDisposable
         ScrcpyService.ResetForTests();
         AppLifecycle.ResetForTests();
         ScrcpyService.EngineFileCheck = () => Array.Empty<string>();
+        ScrcpyService.IntegrityCheck = () => true;   // engine files assumed verified here
         ScrcpyService.StartupWindow = TimeSpan.FromMilliseconds(100);
 
         _logDir = Path.Combine(Path.GetTempPath(), "plp-tests-shutdown-" + Guid.NewGuid().ToString("N"));
@@ -98,12 +99,15 @@ public sealed class AppShutdownTests : IDisposable
         Assert.Null(ex);
     }
 
-    [Fact]
-    public void Shutdown_DisarmsSecurityGuardSoItCannotFailFast()
+    [Fact] // Batch 1E: the shutdown sequence no longer contains a SecurityGuard step
+    public void Shutdown_HasNoSecurityGuardStep()
     {
         AppLifecycle.Shutdown();
 
-        Assert.True(SecurityGuard.IsDisarmed);
+        var text = string.Concat(Directory.GetFiles(_logDir, "*.log").Select(File.ReadAllText));
+        Assert.Contains("Shutdown: begin", text);
+        Assert.Contains("Shutdown: complete", text);
+        Assert.DoesNotContain("security guard", text);
     }
 
     [Fact]
@@ -141,9 +145,8 @@ public sealed class AppShutdownTests : IDisposable
         var ex = Record.Exception(AppLifecycle.Shutdown);
 
         Assert.Null(ex);
-        // The healthy session was still cleaned up, and the guard still disarmed.
+        // The healthy session was still cleaned up.
         Assert.Equal(1, healthy.DisposeCount);
-        Assert.True(SecurityGuard.IsDisarmed);
         Assert.Equal(0, ScrcpyService.ActiveCount);
     }
 

@@ -1,0 +1,3 @@
+# The engine integrity manifest is byte-exact (LF, UTF-8 no BOM): the embedded copy must
+# hash-match what the generator writes on every machine, so git must never rewrite it.
+Resources/engine.manifest -text

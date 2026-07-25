@@ -6,7 +6,12 @@ namespace PhoneLinkPro.Tests;
 
 /// <summary>
 /// DEV-01 — the discovery result model and the "is this really a device listing?" gate.
+///
+/// In the collection since Batch 1E: the real-call tests below exercise
+/// <see cref="AdbService.DiscoverDevicesAsync"/>, which now consults the process-wide
+/// engine integrity verifier before launching anything.
 /// </summary>
+[Collection(GlobalStateCollection.Name)]
 public class DeviceDiscoveryTests
 {
     // ---------------------------------------------------------------- result model
@@ -39,6 +44,7 @@ public class DeviceDiscoveryTests
     [InlineData(DeviceDiscoveryOutcome.StartFailed)]
     [InlineData(DeviceDiscoveryOutcome.AdbError)]
     [InlineData(DeviceDiscoveryOutcome.Unusable)]
+    [InlineData(DeviceDiscoveryOutcome.IntegrityBlocked)]
     public void FailureResults_AreUnknownAndCarryNoDevices(DeviceDiscoveryOutcome outcome)
     {
         var r = DeviceDiscoveryResult.Failure(outcome, "why");

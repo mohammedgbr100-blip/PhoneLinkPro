@@ -13,6 +13,12 @@ public partial class MainWindow : Window
 {
     private readonly Dictionary<string, UserControl> _cache = new();
 
+    /// <summary>True once the ADB server and device watcher have been started.</summary>
+    private bool _engineServicesStarted;
+
+    /// <summary>Dedup key of the last integrity dialog shown (one dialog per distinct state).</summary>
+    private string? _lastIntegrityNotificationKey;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -33,8 +39,12 @@ public partial class MainWindow : Window
                 AppSettings.ConsentAccepted = true;
             }
 
-            await AdbService.StartServerAsync();
-            DeviceWatcher.Start();
+            // SEC-01: engine binaries (bridge + mirror engine) may only run after the
+            // embedded manifest has confirmed them. The window itself always opens, so the
+            // repair guidance, About and Policy pages stay reachable either way.
+            var integrity = await EngineIntegrityVerifier.VerifyAsync();
+            if (integrity.IsValid) await StartEngineServicesAsync();
+            else PresentIntegrityFailure(integrity);
 
             var start = Environment.GetEnvironmentVariable("PLP_START");
             if (!string.IsNullOrWhiteSpace(start)) SelectNav(start);
@@ -46,6 +56,73 @@ public partial class MainWindow : Window
                 AppSettings.OnboardingSeen = true;
             }
         };
+    }
+
+    // ---------------- engine integrity (SEC-01) ----------------
+
+    /// <summary>
+    /// Starts (or resumes after a successful Retry) everything that talks to the engine.
+    /// Idempotent: the server start and watcher start are both safe to reach twice.
+    /// </summary>
+    private async Task StartEngineServicesAsync()
+    {
+        IntegrityBanner.Visibility = Visibility.Collapsed;
+        PageHost.IsEnabled = true;
+
+        if (_engineServicesStarted)
+        {
+            DeviceWatcher.RequestRefresh();   // resume promptly after a repair
+            return;
+        }
+        _engineServicesStarted = true;
+
+        await AdbService.StartServerAsync();
+        DeviceWatcher.Start();
+    }
+
+    /// <summary>
+    /// Persistent, non-fatal failure state: engine-dependent pages go inert, the banner
+    /// explains what to do, and ONE dialog is shown per distinct integrity state — never one
+    /// per watcher poll. The app keeps running; nothing is killed.
+    /// </summary>
+    private void PresentIntegrityFailure(EngineIntegrityResult result)
+    {
+        PageHost.IsEnabled = false;
+        IntegrityBanner.Visibility = Visibility.Visible;
+        IntegrityBannerText.Text = EngineIntegrityMessages.For(result);
+
+        var key = EngineIntegrityMessages.NotificationKey(result);
+        if (key == _lastIntegrityNotificationKey) return;
+        _lastIntegrityNotificationKey = key;
+
+        MessageBox.Show(this, EngineIntegrityMessages.For(result), "PhoneLink Pro",
+            MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private async void IntegrityRetry_Click(object sender, RoutedEventArgs e)
+    {
+        IntegrityRetryBtn.IsEnabled = false;
+        try
+        {
+            var result = await EngineIntegrityVerifier.RetryAsync();
+            if (result.IsValid)
+            {
+                _lastIntegrityNotificationKey = null;
+                await StartEngineServicesAsync();
+                Toast.Show("تم التحقق من ملفات البرنامج بنجاح.");
+            }
+            else
+            {
+                // The user explicitly asked for a re-check, so a fresh dialog is warranted
+                // even when the state has not changed.
+                _lastIntegrityNotificationKey = null;
+                PresentIntegrityFailure(result);
+            }
+        }
+        finally
+        {
+            IntegrityRetryBtn.IsEnabled = true;
+        }
     }
 
     // ---------------- toasts ----------------

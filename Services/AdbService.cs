@@ -7,8 +7,41 @@ namespace ScrcpyDeck.Services;
 /// <summary>High-level wrapper around adb.exe for everything the UI needs.</summary>
 public static class AdbService
 {
-    private static Task<ProcessResult> Adb(IReadOnlyList<string> args, int timeout = 20000)
-        => ProcessRunner.RunAsync(ToolLocator.AdbPath, args, timeout);
+    /// <summary>
+    /// Integrity gate consulted before ANY bundled-binary launch (SEC-01): the bridge is
+    /// never executed until the embedded manifest has confirmed the engine files. The first
+    /// call triggers the shared verification; later calls return the cached result.
+    /// Swappable for tests.
+    /// </summary>
+    internal static Func<CancellationToken, Task<EngineIntegrityResult>> IntegrityGate { get; set; }
+        = EngineIntegrityVerifier.VerifyAsync;
+
+    /// <summary>Restores the production gate (test hook).</summary>
+    internal static void ResetIntegrityGateForTests()
+        => IntegrityGate = EngineIntegrityVerifier.VerifyAsync;
+
+    /// <summary>
+    /// Result for a call refused by the integrity gate. StartFailed (not InvalidInput): the
+    /// tool genuinely could not be started — validation semantics are untouched. The safe
+    /// diagnostic goes to FailureDetail; no hash and no absolute path is ever carried.
+    /// </summary>
+    private static ProcessResult BlockedByIntegrity(EngineIntegrityResult integrity)
+        => integrity.Status == EngineIntegrityStatus.VerificationCancelled
+            ? new ProcessResult(ProcessOutcome.Cancelled, null, "", "")
+            : new ProcessResult(ProcessOutcome.StartFailed, null, "",
+                "تعذّر تشغيل أدوات الاتصال بالجهاز: ملفات البرنامج بحاجة إلى إصلاح.",
+                FailureDetail: IntegrityDiagnostic(integrity));
+
+    private static string IntegrityDiagnostic(EngineIntegrityResult integrity)
+        => ($"engine integrity: {integrity.Status} {integrity.AffectedPath}").TrimEnd();
+
+    private static async Task<ProcessResult> Adb(IReadOnlyList<string> args, int timeout = 20000)
+    {
+        var integrity = await IntegrityGate(CancellationToken.None);
+        if (!integrity.IsValid) return BlockedByIntegrity(integrity);
+
+        return await ProcessRunner.RunAsync(ToolLocator.AdbPath, args, timeout);
+    }
 
     /// <summary>Runs a per-device command, validating the serial before launching anything.</summary>
     private static Task<ProcessResult> AdbForDevice(
@@ -78,6 +111,22 @@ public static class AdbService
     /// </summary>
     public static async Task<DeviceDiscoveryResult> DiscoverDevicesAsync(CancellationToken ct = default)
     {
+        // A cancelled caller is reported as Cancelled before anything else is consulted.
+        if (ct.IsCancellationRequested)
+            return DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.Cancelled, null);
+
+        // SEC-01: the bridge is not launched until its integrity set is verified. The
+        // cached gate result makes this instant on every poll, so a watcher tick during an
+        // integrity failure costs nothing and starts no process.
+        var integrity = await IntegrityGate(ct);
+        if (!integrity.IsValid)
+        {
+            return integrity.Status == EngineIntegrityStatus.VerificationCancelled
+                ? DeviceDiscoveryResult.Failure(DeviceDiscoveryOutcome.Cancelled, null)
+                : DeviceDiscoveryResult.Failure(
+                    DeviceDiscoveryOutcome.IntegrityBlocked, IntegrityDiagnostic(integrity));
+        }
+
         var res = await ProcessRunner.RunAsync(
             new ProcessCommand(ToolLocator.AdbPath, DevicesArgs, 12000), ct);
 
@@ -353,13 +402,21 @@ public static class AdbService
         if (!AdbInput.TryValidatePairingCode(code, out var codeError))
             return Task.FromResult(ProcessResult.Invalid(codeError));
 
+        return PairCoreAsync(normalized, code.Trim());
+    }
+
+    private static async Task<ProcessResult> PairCoreAsync(string normalizedEndpoint, string code)
+    {
+        var integrity = await IntegrityGate(CancellationToken.None);
+        if (!integrity.IsValid) return BlockedByIntegrity(integrity);
+
         var command = new ProcessCommand(
             ToolLocator.AdbPath,
-            PairArgs(normalized, code.Trim()),
+            PairArgs(normalizedEndpoint, code),
             15000,
-            RedactedDescription: $"adb pair {normalized} ******");
+            RedactedDescription: $"adb pair {normalizedEndpoint} ******");
 
-        return ProcessRunner.RunAsync(command);
+        return await ProcessRunner.RunAsync(command);
     }
 
     // ---------------- App management (pm) ----------------

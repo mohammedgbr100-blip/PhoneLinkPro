@@ -25,6 +25,7 @@ public sealed class MirrorSessionLifecycleTests : IDisposable
         AppLifecycle.ResetForTests();
         // Tests run without the bundled engine in their output directory.
         ScrcpyService.EngineFileCheck = () => Array.Empty<string>();
+        ScrcpyService.IntegrityCheck = () => true;   // engine files assumed verified here
         ScrcpyService.StartupWindow = TimeSpan.FromMilliseconds(150);
     }
 

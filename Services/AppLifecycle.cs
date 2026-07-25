@@ -49,9 +49,6 @@ public static class AppLifecycle
         // 4) Stop the ADB server only when we can prove it is ours.
         Step(sw, "adb server policy", StopOwnedAdbServer);
 
-        // 5) SecurityGuard must not FailFast during or after an orderly exit.
-        Step(sw, "disarm security guard", SecurityGuard.Disarm);
-
         sw.Stop();
         Log.Info($"Shutdown: complete in {sw.ElapsedMilliseconds}ms");
     }

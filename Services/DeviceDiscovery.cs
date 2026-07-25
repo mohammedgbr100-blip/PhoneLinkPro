@@ -17,6 +17,11 @@ public enum DeviceDiscoveryOutcome
     AdbError,
     /// <summary>adb exited cleanly but its output could not be understood. State is UNKNOWN.</summary>
     Unusable,
+    /// <summary>
+    /// The bundled bridge failed integrity verification and was NOT launched (SEC-01).
+    /// State is UNKNOWN — an integrity failure is never "every device unplugged".
+    /// </summary>
+    IntegrityBlocked,
 }
 
 /// <summary>
