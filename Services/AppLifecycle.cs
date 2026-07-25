@@ -19,12 +19,30 @@ public static class AppLifecycle
     internal static TimeSpan StepBudget { get; set; } = TimeSpan.FromSeconds(3);
 
     private static int _shutdownStarted;
+    private static int _engineServicesStarted;
 
     /// <summary>True once shutdown has begun; new work must not start.</summary>
     public static bool IsShuttingDown => Volatile.Read(ref _shutdownStarted) == 1;
 
+    /// <summary>
+    /// Records that THIS process started the engine services (ADB server / watcher).
+    /// HW-INSTALL-001: only such a process may stop the shared ADB server at exit. The
+    /// image-path ownership proof cannot distinguish processes — a rejected second
+    /// instance or a PLP_SELFTEST run exits through this same sequence and, without this
+    /// gate, would kill the server out from under the running primary instance.
+    /// </summary>
+    public static void NoteEngineServicesStarted()
+        => Volatile.Write(ref _engineServicesStarted, 1);
+
+    /// <summary>True when this process ever started the engine services.</summary>
+    internal static bool EngineServicesStarted => Volatile.Read(ref _engineServicesStarted) == 1;
+
     /// <summary>Test hook: return to the "running normally" state.</summary>
-    internal static void ResetForTests() => Volatile.Write(ref _shutdownStarted, 0);
+    internal static void ResetForTests()
+    {
+        Volatile.Write(ref _shutdownStarted, 0);
+        Volatile.Write(ref _engineServicesStarted, 0);
+    }
 
     /// <summary>
     /// Runs the shutdown sequence exactly once. Safe to call from a window Closing handler
@@ -46,8 +64,13 @@ public static class AppLifecycle
         // 3) Terminate every mirror session we own.
         Step(sw, "stop mirror sessions", ScrcpyService.StopAll);
 
-        // 4) Stop the ADB server only when we can prove it is ours.
-        Step(sw, "adb server policy", StopOwnedAdbServer);
+        // 4) Stop the ADB server only when we can prove it is ours AND this process is the
+        //    one that started engine services (HW-INSTALL-001: a rejected second instance
+        //    or a self-test exit must never stop the primary instance's server).
+        if (EngineServicesStarted)
+            Step(sw, "adb server policy", StopOwnedAdbServer);
+        else
+            Log.Info("Shutdown: engine services never started in this process; leaving ADB server untouched.");
 
         // 5) Hand back the single-instance mutex. Deliberately NOT routed through Step():
         //    Step runs on a pool thread, but ReleaseMutex must run on the acquiring (UI)

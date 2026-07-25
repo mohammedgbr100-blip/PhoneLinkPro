@@ -221,6 +221,37 @@ public sealed class AppShutdownTests : IDisposable
         Assert.Null(ex);
     }
 
+    [Fact] // HW-INSTALL-001 — a process that never started engine services (rejected second
+           // instance, PLP_SELFTEST, tool modes) must NOT stop the shared ADB server at
+           // exit: the image-path ownership proof cannot tell WHICH process started it.
+    public void Shutdown_WithoutEngineServices_LeavesTheAdbServerAlone()
+    {
+        AppLifecycle.Shutdown();
+
+        var text = string.Concat(Directory.GetFiles(_logDir, "*.log").Select(File.ReadAllText));
+        Assert.Contains("engine services never started in this process", text);
+        Assert.DoesNotContain("ADB server is our bundled bridge", text);
+        Assert.DoesNotContain("kill-server", text);
+    }
+
+    [Fact] // ...while the process that DID start the services still applies the 1C policy
+    public void Shutdown_WithEngineServices_ConsultsTheOwnershipPolicy()
+    {
+        AppLifecycle.NoteEngineServicesStarted();
+
+        AppLifecycle.Shutdown();
+
+        var text = string.Concat(Directory.GetFiles(_logDir, "*.log").Select(File.ReadAllText));
+        Assert.DoesNotContain("engine services never started in this process", text);
+        // Whatever the machine state, exactly one of the four documented decisions logs.
+        Assert.True(
+            text.Contains("no ADB server running")
+            || text.Contains("belongs to another tool")
+            || text.Contains("ownership could not be proven")
+            || text.Contains("bundled bridge; stopping"),
+            "expected an ADB ownership decision in the shutdown log");
+    }
+
     /// <summary>A handle whose Kill blocks, to prove the step budget is enforced.</summary>
     private sealed class SlowKillHandle : IProcessHandle
     {

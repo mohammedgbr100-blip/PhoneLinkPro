@@ -76,6 +76,8 @@ public partial class MainWindow : Window
         }
         _engineServicesStarted = true;
 
+        // HW-INSTALL-001: only the process that started the server may stop it at exit.
+        AppLifecycle.NoteEngineServicesStarted();
         await AdbService.StartServerAsync();
         DeviceWatcher.Start();
     }
