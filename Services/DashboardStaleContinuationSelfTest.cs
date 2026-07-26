@@ -107,20 +107,22 @@ internal static class DashboardStaleContinuationSelfTest
                 var exB = TryRaiseDeviceEvent(new List<AdbDevice> { deviceB });   // B runs to completion
                 Expect("B: no exception completing B", exB == null);
 
-                var itemsAfterB = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
+                // Batch 4A: the hero, not DeviceList (which now excludes it), is what reflects
+                // "which device won" for a solo device — see HeroDeviceForTests' own remarks.
+                var heroAfterB = view.HeroDeviceForTests;
                 Expect("B: B's result is applied before A resolves",
-                    itemsAfterB != null && itemsAfterB.Count == 1 && ReferenceEquals(itemsAfterB[0], deviceB));
+                    ReferenceEquals(heroAfterB, deviceB));
 
                 tcsA.SetResult();   // the older, previously-paused operation finally resolves
                 Pump();
 
-                var itemsAfterA = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
+                var heroAfterA = view.HeroDeviceForTests;
                 Expect("B: A's late resolution did not overwrite B's result",
-                    itemsAfterA != null && itemsAfterA.Count == 1 && ReferenceEquals(itemsAfterA[0], deviceB));
+                    ReferenceEquals(heroAfterA, deviceB));
 
                 lines.AppendLine(
-                    $"  B: after B={(itemsAfterB is [{ } b] ? b.Serial : "?")}, " +
-                    $"after A resolves late={(itemsAfterA is [{ } a] ? a.Serial : "?")}");
+                    $"  B: after B={heroAfterB?.Serial ?? "?"}, " +
+                    $"after A resolves late={heroAfterA?.Serial ?? "?"}");
                 Unload(view);
             }
 
@@ -146,9 +148,7 @@ internal static class DashboardStaleContinuationSelfTest
                 var freshEx = TryRaiseDeviceEvent(new List<AdbDevice> { fresh });
                 Expect("C: no exception on the fresh reload's refresh", freshEx == null);
 
-                var itemsAfterFresh = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
-                var freshSucceeded = itemsAfterFresh != null && itemsAfterFresh.Count == 1
-                                     && ReferenceEquals(itemsAfterFresh[0], fresh);
+                var freshSucceeded = ReferenceEquals(view.HeroDeviceForTests, fresh);
                 Expect("C: the fresh reload's refresh was not blocked by the abandoned busy flag", freshSucceeded);
 
                 lines.AppendLine($"  C: fresh reload after an abandoned operation succeeded = {freshSucceeded}");
@@ -195,9 +195,7 @@ internal static class DashboardStaleContinuationSelfTest
                 var freshEx = TryRaiseDeviceEvent(new List<AdbDevice> { fresh });
                 Expect("D: no exception on the reload started after the stale fault", freshEx == null);
 
-                var itemsAfterFresh = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
-                var freshSucceeded = itemsAfterFresh != null && itemsAfterFresh.Count == 1
-                                     && ReferenceEquals(itemsAfterFresh[0], fresh);
+                var freshSucceeded = ReferenceEquals(view.HeroDeviceForTests, fresh);
                 Expect("D: the reload after a stale fault still updates the list", freshSucceeded);
 
                 lines.AppendLine($"  D: reload after a stale fault succeeded = {freshSucceeded}");
@@ -214,13 +212,12 @@ internal static class DashboardStaleContinuationSelfTest
                 var ex = TryRaiseDeviceEvent(new List<AdbDevice> { live });
                 Expect("E: no exception on a normal, current operation", ex == null);
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
-                Expect("E: DeviceList updated exactly once with the live device",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], live));
+                Expect("E: the hero updated exactly once with the live device",
+                    ReferenceEquals(view.HeroDeviceForTests, live));
                 Expect("E: AppState.CurrentDevice updated to the live device",
                     ReferenceEquals(AppState.CurrentDevice, live));
 
-                lines.AppendLine($"  E: list updated={items?.Count == 1}, " +
+                lines.AppendLine($"  E: hero updated={ReferenceEquals(view.HeroDeviceForTests, live)}, " +
                                  $"AppState updated={ReferenceEquals(AppState.CurrentDevice, live)}");
                 Unload(view);
             }

@@ -150,4 +150,26 @@ public static class ShellLayout
         => string.IsNullOrWhiteSpace(model)
             ? MaskSerial(serial)
             : (displayName ?? "").Trim();
+
+    /// <summary>
+    /// A truthful device-name fallback for when <paramref name="model"/> is not yet known
+    /// (Batch 4A repair). Unlike <see cref="SafeDeviceLabel"/>, this never falls back to a
+    /// masked (or raw) serial: a technical value rendered under ordinary RTL body text is both
+    /// a truthfulness problem (it repeats whatever a dedicated LTR mono serial field already
+    /// shows) and a rendering one (the Unicode bidi algorithm can visually reorder a masked
+    /// serial's mixed digit/punctuation/bullet run when it inherits RTL flow instead of the
+    /// mono field's explicit LeftToRight override). Never fabricates a model name either.
+    /// </summary>
+    /// <param name="model">The device model, empty when not yet known.</param>
+    /// <param name="displayName">The enriched label to use when <paramref name="model"/> is known.</param>
+    /// <param name="state">The device's raw ADB state ("device" / "unauthorized" / "offline").</param>
+    public static string DeviceNameOrFallback(string? model, string? displayName, string? state)
+        => string.IsNullOrWhiteSpace(model)
+            ? state switch
+            {
+                "unauthorized" => "جهاز بانتظار الإذن",
+                "offline" => "جهاز غير متصل",
+                _ => "جهاز أندرويد",
+            }
+            : (displayName ?? "").Trim();
 }

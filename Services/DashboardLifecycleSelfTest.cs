@@ -113,21 +113,17 @@ internal static class DashboardLifecycleSelfTest
             Load(liveView);
             var fakeDevices = new List<AdbDevice> { Fake("batch3b-live-probe") };
             var liveEx = TryRaiseDeviceEvent(fakeDevices);
-            // DeviceWatcher.ApplySuccess wraps the payload in a fresh List<AdbDevice> (a
-            // ".ToList()" copy) before dispatching, so the LIST container is never the same
-            // object as fakeDevices — only the single AdbDevice element inside it is. "Exactly
-            // once" is checked at the element level: the applied list holds exactly the one
-            // fake device instance, no more, no fewer.
-            var appliedList = (liveView.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
-            var applied = liveEx == null && appliedList != null && appliedList.Count == 1
-                          && ReferenceEquals(appliedList[0], fakeDevices[0]);
+            // Batch 4A: a solo device becomes the HERO, deliberately excluded from
+            // DeviceList (see DashboardView.HeroDeviceForTests' own remarks) — so "exactly
+            // once" is now checked at the hero, the only place a lone applied device shows up.
+            var applied = liveEx == null && ReferenceEquals(liveView.HeroDeviceForTests, fakeDevices[0]);
 
             total++;
             if (liveEx != null)
                 failures.Add($"a DevicesChanged event while Loaded threw: {liveEx.GetType().Name}: {liveEx.Message}");
             else if (!applied)
-                failures.Add("a DevicesChanged event while Loaded did not update DeviceList.ItemsSource exactly once");
-            lines.AppendLine($"  live event while loaded: DeviceList.ItemsSource updated exactly once = {applied}");
+                failures.Add("a DevicesChanged event while Loaded did not update the hero exactly once");
+            lines.AppendLine($"  live event while loaded: hero updated exactly once = {applied}");
             Unload(liveView);
         }
         catch (Exception ex)

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using ScrcpyDeck.Models;
 using ScrcpyDeck.Services;
 
@@ -84,6 +86,27 @@ public partial class DashboardView : UserControl, IRefreshable
     /// </summary>
     internal static Func<Task<DeviceDiscoveryResult>>? DiscoverDevicesOverrideForTests;
 
+    /// <summary>Reveal-toggle for the hero's masked serial (Batch 4A — mirrors MainWindow's
+    /// own sidebar reveal toggle; pure view state. M2 repair: reset only when the hero's device
+    /// IDENTITY changes — see <see cref="UpdateHero"/> — not on every routine repaint of the
+    /// same device.</summary>
+    private bool _serialRevealed;
+
+    /// <summary>The device the hero currently displays (Batch 4A — pure view state, used only
+    /// so the reveal toggle can read its unmasked serial without re-scanning DeviceList).</summary>
+    private AdbDevice? _heroDevice;
+
+    /// <summary>
+    /// Test-only read of the hero device (Batch 4A repair). Before M2's hero/list separation,
+    /// the Batch 3B/3C/3D self-tests could confirm "which device won a race" by reading
+    /// DeviceList.ItemsSource directly, because it always mirrored the full applied snapshot.
+    /// Now that the hero device is deliberately EXCLUDED from that list, a solo device under
+    /// test never appears there at all — this seam is the honest replacement, reflecting
+    /// exactly what ApplyDevicesCoreAsync's own UpdateHero(hero) call just painted, regardless
+    /// of the device's authorization state (DeviceList only ever holds the OTHER devices).
+    /// </summary>
+    internal AdbDevice? HeroDeviceForTests => _heroDevice;
+
     public DashboardView()
     {
         InitializeComponent();
@@ -116,6 +139,14 @@ public partial class DashboardView : UserControl, IRefreshable
     {
         if (_watcherSubscribed) return;
         DeviceWatcher.DevicesChanged += OnDevicesChanged;
+        // Batch 4A mirror/live-state repair: ScrcpyService already raises this event (UI
+        // thread when an Application exists — see its own XML doc) whenever a session starts,
+        // survives startup, or ends, which is exactly what UpdateHero's old ActiveCount read
+        // was missing — nothing forced a repaint after a session change, so the live/offline
+        // dot could stay wrong indefinitely. Tied to the same _watcherSubscribed guard as the
+        // DeviceWatcher subscription above: one Loaded/Unloaded lifecycle, no new bool, no
+        // polling, no timer.
+        ScrcpyService.SessionsChanged += OnSessionsChanged;
         _watcherSubscribed = true;
     }
 
@@ -123,7 +154,20 @@ public partial class DashboardView : UserControl, IRefreshable
     {
         if (!_watcherSubscribed) return;
         DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+        ScrcpyService.SessionsChanged -= OnSessionsChanged;
         _watcherSubscribed = false;
+    }
+
+    /// <summary>
+    /// Named ScrcpyService.SessionsChanged handler, wired only while Loaded (Batch 4A). Only
+    /// repaints the hero's live/offline state — never resets the serial-reveal toggle and
+    /// never re-derives the rest of the hero, exactly like a stale generation's UpdateHero call
+    /// would be wrong to run, a session event for a hero that no longer exists must be a no-op.
+    /// </summary>
+    private void OnSessionsChanged()
+    {
+        if (_heroDevice == null) return;
+        UpdateHeroLiveState(_heroDevice);
     }
 
     public void OnShown() => _ = RefreshAsync();
@@ -134,6 +178,7 @@ public partial class DashboardView : UserControl, IRefreshable
     {
         if (_busy) return;
         _busy = true;
+        SetBusyVisual(true);
         var generation = _generation;
         // Batch 3D: claimed now — the moment this refresh commits to being an observation
         // attempt — so a watcher event that arrives later, even while discovery is still in
@@ -181,6 +226,7 @@ public partial class DashboardView : UserControl, IRefreshable
             {
                 _busy = false;
                 RefreshBtn.IsEnabled = true;
+                SetBusyVisual(false);
             }
         }
     }
@@ -199,6 +245,7 @@ public partial class DashboardView : UserControl, IRefreshable
         if (_busy) { _missedUpdate = (devices, sequence); return; }
 
         _busy = true;
+        SetBusyVisual(true);
         var generation = _generation;
         try
         {
@@ -207,7 +254,11 @@ public partial class DashboardView : UserControl, IRefreshable
         }
         finally
         {
-            if (IsCurrent(generation)) _busy = false;
+            if (IsCurrent(generation))
+            {
+                _busy = false;
+                SetBusyVisual(false);
+            }
         }
     }
 
@@ -253,13 +304,14 @@ public partial class DashboardView : UserControl, IRefreshable
             return;
         }
 
-        EmptyState.Visibility = Visibility.Collapsed;
-        DeviceList.ItemsSource = devices;
-
         // Keep current selection if still present; otherwise pick first authorized.
         var keep = devices.FirstOrDefault(d => d.Serial == AppState.CurrentSerial)
                    ?? devices.FirstOrDefault(d => d.IsAuthorized);
+        var hero = keep ?? devices[0];
         if (keep != null) AppState.SetCurrent(keep);
+
+        ApplyOtherDevicesList(devices, hero);
+        UpdateHero(hero);
 
         // Fetch details for all devices in parallel.
         await Task.WhenAll(devices.Where(d => d.IsAuthorized).Select(EnrichOverrideForTests ?? AdbService.EnrichAsync));
@@ -268,19 +320,170 @@ public partial class DashboardView : UserControl, IRefreshable
         // Refresh the list (and sidebar) to show enriched details.
         DeviceList.Items.Refresh();
         if (keep != null && AppState.CurrentSerial == keep.Serial) AppState.SetCurrent(keep);
+        UpdateHero(hero);   // enrichment may have just populated model/battery/etc.
+    }
+
+    /// <summary>
+    /// Populates the lower list with every OTHER discovered device — never the one the hero
+    /// above is already showing (Batch 4A hero/list de-duplication). Same AdbDevice instances
+    /// as the full snapshot, so the post-enrichment DeviceList.Items.Refresh() above still
+    /// repaints them; the heading and the list container are hidden together whenever there is
+    /// nothing left to show, so a single-device connection never leaves an orphan heading.
+    /// </summary>
+    private void ApplyOtherDevicesList(List<AdbDevice> devices, AdbDevice hero)
+    {
+        var others = devices.Where(d => d.Serial != hero.Serial).ToList();
+        DeviceList.ItemsSource = others;
+        var visibility = others.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        OthersHeading.Visibility = visibility;
+        DeviceList.Visibility = visibility;
     }
 
     private void ShowEmpty(string message)
     {
-        EmptyText.Text = message;
-        EmptyState.Visibility = Visibility.Visible;
+        HeroEmptyTitle.Text = message;
+        OthersHeading.Visibility = Visibility.Collapsed;
+        DeviceList.Visibility = Visibility.Collapsed;
+        UpdateHero(null);
     }
+
+    // ---------------------------------------------------------------- hero (Batch 4A, view-only)
+    // Everything below reads state that ApplyDevicesCoreAsync/RefreshAsync already computed and
+    // writes it to named XAML elements exactly like MainWindow.UpdateSidebarDevice does for the
+    // shell chip — no new service calls, no new subscriptions, no new async operations.
+
+    /// <summary>
+    /// Reflects the current busy/refresh state into the header. Only shown while the hero has
+    /// no device to display, so a routine background poll of an already-connected device never
+    /// dims or flickers the hero — the same "truthful, not decorative" rule the empty/offline
+    /// states follow.
+    /// </summary>
+    private void SetBusyVisual(bool busy)
+        => LoadingHint.Visibility = busy && HeroEmpty.Visibility == Visibility.Visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    /// <summary>
+    /// Paints the hero for one device, or the empty variant when <paramref name="device"/> is
+    /// null. Called at the same points ApplyDevicesCoreAsync already updates DeviceList/AppState,
+    /// so the hero never lags a frame behind the list it summarizes.
+    /// </summary>
+    private void UpdateHero(AdbDevice? device)
+    {
+        // M2 repair: UpdateHero runs on every routine refresh/poll/enrichment repaint of the
+        // SAME device, not only when the hero's identity actually changes — resetting
+        // _serialRevealed unconditionally here reveals-then-immediately-re-masks the serial on
+        // every ordinary same-device tick. Reveal now survives exactly while the hero still
+        // represents the same device identity (same serial, ordinal comparison — the app's
+        // existing serial-equality rule), and resets only when that identity changes: a
+        // different serial becomes hero, or the hero disappears entirely.
+        var previousSerial = _heroDevice?.Serial;
+        var identityChanged = device == null
+            || previousSerial == null
+            || !string.Equals(previousSerial, device.Serial, StringComparison.Ordinal);
+        if (identityChanged) _serialRevealed = false;
+        _heroDevice = device;
+
+        if (device == null)
+        {
+            HeroLive.Visibility = Visibility.Collapsed;
+            HeroEmpty.Visibility = Visibility.Visible;
+            LoadingHint.Visibility = _busy ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+
+        HeroEmpty.Visibility = Visibility.Collapsed;
+        LoadingHint.Visibility = Visibility.Collapsed;
+        HeroLive.Visibility = Visibility.Visible;
+
+        // M4 repair: a device only really IS "الجهاز الحالي" when it is the one
+        // ApplyDevicesCoreAsync just committed to AppState — the caption above the name line
+        // must say so truthfully rather than always claiming "current" even for a bare
+        // fallback shown only because no authorized device exists yet.
+        HeroDeviceLabel.Text = device.Serial == AppState.CurrentSerial ? "الجهاز الحالي" : "الجهاز المكتشف";
+        // M4 repair: the old fallback masked the serial here too, so an unauthorized/unknown
+        // device showed the SAME masked value on both the name line and the serial line below
+        // it. A truthful state label never repeats the serial — the raw/masked value belongs
+        // only in the LTR mono HeroSerial field.
+        HeroDeviceName.Text = ShellLayout.DeviceNameOrFallback(device.Model, device.DisplayName, device.State);
+        HeroConnectionBadge.Text = device.ConnectionLabel;
+        UpdateRevealAffordance();
+
+        UpdateHeroLiveState(device);
+
+        HeroUnauthorizedHint.Visibility =
+            device.State == "unauthorized" ? Visibility.Visible : Visibility.Collapsed;
+
+        HeroAndroidText.Text = string.IsNullOrWhiteSpace(device.AndroidVersion)
+            ? "—" : "Android " + device.AndroidVersion;
+        HeroResolutionText.Text = string.IsNullOrWhiteSpace(device.Resolution) ? "—" : device.Resolution;
+
+        var hasBattery = device.IsAuthorized && device.Battery >= 0;
+        HeroBattery.Visibility = hasBattery ? Visibility.Visible : Visibility.Hidden;
+        if (hasBattery)
+        {
+            var pct = Math.Clamp(device.Battery, 0, 100);
+            HeroBatteryVal.Text = pct + "%";
+            HeroBatteryFill.Width = HeroBatteryTrack.Width * pct / 100.0;
+        }
+
+        HeroStartBtn.Tag = device.Serial;
+        HeroStartBtn.IsEnabled = device.IsAuthorized;
+        AutomationProperties.SetName(HeroStartBtn,
+            device.IsAuthorized
+                ? $"بدء البث من {ShellLayout.DeviceNameOrFallback(device.Model, device.DisplayName, device.State)}"
+                : "بدء البث — الجهاز غير مصرّح له بعد");
+    }
+
+    /// <summary>
+    /// Repaints only the state dot/text that a mirror session change can affect (Batch 4A
+    /// mirror/live-state repair) — split out of UpdateHero so <see cref="OnSessionsChanged"/>
+    /// can call it without also resetting the serial-reveal toggle or re-deriving every other
+    /// hero field UpdateHero owns.
+    /// </summary>
+    private void UpdateHeroLiveState(AdbDevice device)
+    {
+        var live = device.IsAuthorized && ScrcpyService.ActiveCount > 0;
+        var (dot, text) = live
+            ? ("Brush.State.Live", "يتم بث الشاشة الآن")
+            : device.IsAuthorized
+                ? ("Brush.State.Success", device.StateLabel)
+                : device.State == "unauthorized"
+                    ? ("Brush.State.Warning", device.StateLabel)
+                    : ("Brush.Text.Muted", device.StateLabel);
+        HeroStateDot.Fill = (Brush)FindResource(dot);
+        HeroStateText.Text = text;
+        HeroStateText.Foreground = (Brush)FindResource(dot);
+    }
+
+    private void UpdateRevealAffordance()
+    {
+        if (_heroDevice == null) return;
+        HeroSerial.Text = _serialRevealed ? _heroDevice.Serial : ShellLayout.MaskSerial(_heroDevice.Serial);
+        var label = _serialRevealed ? "إخفاء الرقم التسلسلي" : "إظهار الرقم التسلسلي";
+        HeroRevealBtn.ToolTip = label;
+        AutomationProperties.SetName(HeroRevealBtn, label);
+    }
+
+    private void RevealSerial_Click(object sender, RoutedEventArgs e)
+    {
+        if (_heroDevice == null) return;
+        _serialRevealed = !_serialRevealed;
+        UpdateRevealAffordance();
+    }
+
+    // ---------------------------------------------------------------- existing actions (unchanged)
 
     private void SelectAndMirror_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button b || b.Tag is not string serial) return;
-        var devices = DeviceList.ItemsSource as IEnumerable<AdbDevice>;
-        var dev = devices?.FirstOrDefault(d => d.Serial == serial);
+        // Batch 4A: DeviceList.ItemsSource is now the OTHER-devices list (the hero device is
+        // deliberately excluded from it — ApplyOtherDevicesList), so HeroStartBtn's own click
+        // must also check _heroDevice or its clicks would silently no-op once the hero is the
+        // only authorized device connected.
+        var dev = _heroDevice != null && _heroDevice.Serial == serial
+            ? _heroDevice
+            : (DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.FirstOrDefault(d => d.Serial == serial);
         if (dev == null) return;
 
         AppState.SetCurrent(dev);

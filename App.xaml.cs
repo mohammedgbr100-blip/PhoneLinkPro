@@ -63,6 +63,33 @@ public partial class App : Application
             return;
         }
 
+        // Hidden design-QA tool (Batch 4A): render the Dashboard 2.0 UserControl offscreen for
+        // a fixed set of device fixtures, then exit with a meaningful code. Same placement and
+        // reasoning as ShellSnapshotToolMode above — ahead of every real service. StartupUri
+        // still auto-creates MainWindow regardless of this branch (exactly as it does for
+        // PLP_SELFTEST below); SuppressStartupForHarness makes its Loaded handler a no-op, so
+        // it never reaches consent/integrity/engine startup — this tool mode never touches it
+        // beyond that.
+        if (DashboardSnapshotToolMode.IsRequested())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            var prepared = DashboardSnapshotToolMode.Prepare();
+            if (prepared != DashboardSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await DashboardSnapshotToolMode.RunAsync();
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
         // Hidden self-test: construct every window to catch XAML/resource errors, then verify
         // the RENDERED design contract (Theme.xaml's implicit TextBlock style outranks
         // inheritance, so XAML alone cannot prove a control paints the right colour), then
@@ -104,8 +131,12 @@ public partial class App : Application
                 var dashboardStale = DashboardStaleContinuationSelfTest.Run();
                 // Batch 3D: proves an older queued device update can never overwrite a newer one.
                 var dashboardOrdering = DashboardMissedUpdateOrderingSelfTest.Run();
+                // Batch 4A: proves the Dashboard 2.0 visual layer renders every fixture without
+                // exception and exposes the accessibility contract Phase 5 requires.
+                var dashboardVisual = DashboardVisualSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
-                             && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed;
+                             && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
+                             && dashboardVisual.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -116,6 +147,7 @@ public partial class App : Application
                     (dashboard.Passed ? "OK: " : "FAIL: ") + dashboard.Report,
                     (dashboardStale.Passed ? "OK: " : "FAIL: ") + dashboardStale.Report,
                     (dashboardOrdering.Passed ? "OK: " : "FAIL: ") + dashboardOrdering.Report,
+                    (dashboardVisual.Passed ? "OK: " : "FAIL: ") + dashboardVisual.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;

@@ -73,13 +73,14 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 var laterEx = TryRaiseDeviceEvent(new List<AdbDevice> { t });
                 Expect("A: no exception delivering T", laterEx == null);
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
-                Expect("A: final ItemsSource represents T, not S",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], t));
+                // Batch 4A: a solo device becomes the HERO, excluded from DeviceList — see
+                // DashboardView.HeroDeviceForTests' own remarks.
+                Expect("A: the final hero represents T, not S",
+                    ReferenceEquals(view.HeroDeviceForTests, t));
                 Expect("A: AppState.CurrentDevice represents T",
                     ReferenceEquals(AppState.CurrentDevice, t));
 
-                lines.AppendLine($"  A: final device={(items is [{ } a] ? a.Serial : "?")}, " +
+                lines.AppendLine($"  A: final device={view.HeroDeviceForTests?.Serial ?? "?"}, " +
                                  $"AppState={AppState.CurrentDevice?.Serial ?? "<null>"}");
                 Unload(view);
                 DashboardView.DiscoverDevicesOverrideForTests = null;
@@ -105,11 +106,10 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 discoverTcs.SetResult(DeviceDiscoveryResult.Success(new List<AdbDevice> { r }));
                 Pump();
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
                 Expect("B: the lone queued update eventually became the final result",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], s));
+                    ReferenceEquals(view.HeroDeviceForTests, s));
 
-                lines.AppendLine($"  B: final device={(items is [{ } b] ? b.Serial : "?")}");
+                lines.AppendLine($"  B: final device={view.HeroDeviceForTests?.Serial ?? "?"}");
                 Unload(view);
                 DashboardView.DiscoverDevicesOverrideForTests = null;
             }
@@ -138,11 +138,10 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 holdTcs.SetResult();
                 Pump();
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
                 Expect("C: only S3 (the latest) was ever applied",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], s3));
+                    ReferenceEquals(view.HeroDeviceForTests, s3));
 
-                lines.AppendLine($"  C: final device={(items is [{ } c] ? c.Serial : "?")}");
+                lines.AppendLine($"  C: final device={view.HeroDeviceForTests?.Serial ?? "?"}");
                 Unload(view);
             }
 
@@ -172,11 +171,10 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 var currentEx = TryRaiseDeviceEvent(new List<AdbDevice> { current });
                 Expect("D: no exception delivering the current-generation update", currentEx == null);
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
                 Expect("D: the old queued update was discarded; the current update won",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], current));
+                    ReferenceEquals(view.HeroDeviceForTests, current));
 
-                lines.AppendLine($"  D: final device={(items is [{ } d] ? d.Serial : "?")}");
+                lines.AppendLine($"  D: final device={view.HeroDeviceForTests?.Serial ?? "?"}");
                 Unload(view);
             }
 
@@ -204,11 +202,10 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 var newerEx = TryRaiseDeviceEvent(new List<AdbDevice> { newer });
                 Expect("E: no exception on the operation after the failure (busy recovered)", newerEx == null);
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
                 Expect("E: the obsolete queued snapshot did not overwrite the newer update",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], newer));
+                    ReferenceEquals(view.HeroDeviceForTests, newer));
 
-                lines.AppendLine($"  E: final device={(items is [{ } e] ? e.Serial : "?")}");
+                lines.AppendLine($"  E: final device={view.HeroDeviceForTests?.Serial ?? "?"}");
                 Unload(view);
             }
 
@@ -225,16 +222,14 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 var ex = TryRaiseDeviceEvent(new List<AdbDevice> { live });
                 Expect("F: no exception on a normal, current operation", ex == null);
 
-                var items = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList();
-                Expect("F: a single normal watcher event still updates the list exactly once",
-                    items != null && items.Count == 1 && ReferenceEquals(items[0], live));
+                var appliedOnce = ReferenceEquals(view.HeroDeviceForTests, live);
+                Expect("F: a single normal watcher event still updates the hero exactly once", appliedOnce);
 
                 Unload(view);
                 Expect("F: subscriber count after Unloaded returns to baseline",
                     SubscriberCount() == baseline);
 
-                lines.AppendLine($"  F: subscriber balance ok, normal update applied once=" +
-                                 $"{items != null && items.Count == 1}");
+                lines.AppendLine($"  F: subscriber balance ok, normal update applied once={appliedOnce}");
             }
         }
         catch (Exception ex)
