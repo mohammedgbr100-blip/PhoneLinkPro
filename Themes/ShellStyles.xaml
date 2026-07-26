@@ -1,0 +1,483 @@
+<!-- ============================================================================
+     PhoneLink Pro 2.0 — reusable shell control styles (Batch 3A).
+     Visual baseline: approved Direction D design baseline — Batch 2B, approved 2026-07-25.
+     All values come from DesignTokens.xaml; icons come from Icons.xaml.
+     Feature pages keep Theme.xaml until migrated.
+     ============================================================================ -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:root="clr-namespace:ScrcpyDeck">
+
+    <!-- ===================== icon rendering ===================== -->
+    <!-- Stroke inherits the ambient Foreground via the inheritable TextElement attached
+         property, so icons recolor automatically with their host control's state. -->
+    <Style x:Key="Shell.Icon" TargetType="Path">
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="Fill" Value="{x:Null}"/>
+        <Setter Property="StrokeThickness" Value="1.75"/>
+        <Setter Property="StrokeStartLineCap" Value="Round"/>
+        <Setter Property="StrokeEndLineCap" Value="Round"/>
+        <Setter Property="StrokeLineJoin" Value="Round"/>
+        <Setter Property="Width" Value="{StaticResource Size.Icon}"/>
+        <Setter Property="Height" Value="{StaticResource Size.Icon}"/>
+        <Setter Property="SnapsToDevicePixels" Value="False"/>
+        <Setter Property="Stroke"
+                Value="{Binding RelativeSource={RelativeSource Self}, Path=(TextElement.Foreground)}"/>
+    </Style>
+
+    <!-- ===================== button content text ===================== -->
+    <!-- A button's string Content is rendered by ContentPresenter through a generated
+         TextBlock that carries no local Foreground. Theme.xaml is merged LAST, so its
+         implicit TextBlock style outranks the inherited value and would freeze every
+         button's text colour (killing the hover/pressed/disabled Foreground triggers).
+
+         Each text-content button template shadows that by pulling this style into its
+         ContentPresenter.Resources. The scope matters: ControlTemplate.Resources is NOT
+         consulted for the TextBlock a ContentPresenter generates for string content — the
+         presenter itself must carry the style. Scope is therefore per-presenter, and no
+         legacy feature page is affected. Verified by ShellRenderSelfTest. -->
+    <Style x:Key="Shell.ButtonContentText" TargetType="TextBlock">
+        <Setter Property="Foreground"
+                Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type ButtonBase}}}"/>
+        <Setter Property="FontFamily"
+                Value="{Binding FontFamily, RelativeSource={RelativeSource AncestorType={x:Type ButtonBase}}}"/>
+    </Style>
+
+    <!-- ===================== keyboard focus ===================== -->
+    <Style x:Key="Shell.FocusVisual">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Rectangle Margin="1" RadiusX="6" RadiusY="6"
+                               Stroke="{StaticResource Brush.Focus.Outline}" StrokeThickness="2"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== tooltip (implicit) ===================== -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{StaticResource Brush.Surface.RaisedAlt}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Strong}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="10,6"/>
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.Secondary}"/>
+        <Setter Property="HasDropShadow" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource Radius.Control}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== text roles ===================== -->
+    <Style x:Key="Text.PageTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.PageTitle}"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(root:ShellChrome.IsCompact)}" Value="True">
+                <Setter Property="FontSize" Value="{StaticResource FontSize.PageTitleCompact}"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="Text.PageSubtitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.BodySmall}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+    </Style>
+
+    <Style x:Key="Text.Body" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.Body}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+    </Style>
+
+    <Style x:Key="Text.Secondary" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.Secondary}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+    </Style>
+
+    <Style x:Key="Text.Caption" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.Caption}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+    </Style>
+
+    <!-- technical values (serials, IPs, versions): always an explicit LTR island -->
+    <Style x:Key="Text.Mono" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.Mono}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.Small}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+        <Setter Property="FlowDirection" Value="LeftToRight"/>
+    </Style>
+
+    <!-- ===================== buttons ===================== -->
+    <!-- shared disabled treatment: neutral grey, never a tinted ghost of the enabled look -->
+
+    <Style x:Key="Button.Primary" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.Body}"/>
+        <Setter Property="FontWeight" Value="{StaticResource FontWeight.Medium}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.OnAccent}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="MinHeight" Value="{StaticResource Size.ControlHeight}"/>
+        <Setter Property="Padding" Value="18,0"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" CornerRadius="{StaticResource Radius.Card}"
+                            Background="{StaticResource Brush.Accent.Fill}"
+                            BorderBrush="Transparent" BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Shell.ButtonContentText}"/>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect Color="{StaticResource Color.Accent.Primary}"
+                                                      BlurRadius="16" ShadowDepth="0" Opacity="0.35"/>
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Brush.Accent.Primary}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="b" Property="Background" Value="Transparent"/>
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Brush.Border.Subtle}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+                            <Setter TargetName="b" Property="Opacity" Value="{StaticResource Opacity.Disabled}"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Button.Ghost" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.BodySmall}"/>
+        <Setter Property="FontWeight" Value="{StaticResource FontWeight.Medium}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="MinHeight" Value="{StaticResource Size.ControlHeight}"/>
+        <Setter Property="Padding" Value="16,0"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" CornerRadius="{StaticResource Radius.Control}"
+                            Background="Transparent"
+                            BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Shell.ButtonContentText}"/>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Brush.Border.Strong}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Brush.Surface.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+                            <Setter TargetName="b" Property="Opacity" Value="{StaticResource Opacity.Disabled}"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- outline danger (e.g. «إعادة الفحص» on the integrity banner) -->
+    <Style x:Key="Button.GhostDanger" TargetType="Button" BasedOn="{StaticResource Button.Ghost}">
+        <Setter Property="Foreground" Value="{StaticResource Brush.State.Danger}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" CornerRadius="{StaticResource Radius.Control}"
+                            Background="Transparent"
+                            BorderBrush="{StaticResource Brush.State.DangerBorder}" BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Shell.ButtonContentText}"/>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Brush.State.Danger}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.State.DangerHoverText}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Brush.Border.Subtle}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+                            <Setter TargetName="b" Property="Opacity" Value="{StaticResource Opacity.Disabled}"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- filled danger (destructive confirm) -->
+    <Style x:Key="Button.Danger" TargetType="Button">
+        <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+        <Setter Property="FontSize" Value="{StaticResource FontSize.BodySmall}"/>
+        <Setter Property="FontWeight" Value="{StaticResource FontWeight.Medium}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.OnDanger}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="MinHeight" Value="{StaticResource Size.ControlHeight}"/>
+        <Setter Property="Padding" Value="18,0"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" CornerRadius="{StaticResource Radius.Control}"
+                            Background="{StaticResource Brush.State.DangerFill}"
+                            BorderBrush="Transparent" BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource Shell.ButtonContentText}"/>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect Color="{StaticResource Color.State.Danger}"
+                                                      BlurRadius="12" ShadowDepth="0" Opacity="0.25"/>
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <!-- neutral disabled: no red tint at all (Direction D final polish) -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="b" Property="Background" Value="Transparent"/>
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Brush.Border.Subtle}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+                            <Setter TargetName="b" Property="Opacity" Value="{StaticResource Opacity.Disabled}"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- borderless 30×30 icon button (eye toggle, inline actions) -->
+    <Style x:Key="Button.Icon" TargetType="Button">
+        <Setter Property="Width" Value="{StaticResource Size.IconButton}"/>
+        <Setter Property="Height" Value="{StaticResource Size.IconButton}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" Background="Transparent" CornerRadius="{StaticResource Radius.Control}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Brush.Surface.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="b" Property="Opacity" Value="{StaticResource Opacity.Disabled}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- window caption button (40×30, square hover) -->
+    <Style x:Key="Button.Caption" TargetType="Button">
+        <Setter Property="Width" Value="{StaticResource Size.CaptionButtonWidth}"/>
+        <Setter Property="Height" Value="{StaticResource Size.CaptionButtonHeight}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" Background="Transparent">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Brush.Surface.Hover}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- smaller title-bar utility icon (help / about) -->
+    <Style x:Key="Button.CaptionUtility" TargetType="Button" BasedOn="{StaticResource Button.Caption}">
+        <Setter Property="Width" Value="{StaticResource Size.IconButton}"/>
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Muted}"/>
+    </Style>
+
+    <!-- ===================== navigation item ===================== -->
+    <!-- RadioButton keeps single-selection + keyboard semantics. Icon geometry rides in
+         Tag; label is Content. Compact mode (inherited ShellChrome.IsCompact) hides the
+         label and centers the icon — the accessible name and tooltip remain. -->
+    <ControlTemplate x:Key="Shell.NavItemTemplate" TargetType="ToggleButton">
+        <Border x:Name="b" Height="{StaticResource Size.NavItemHeight}"
+                CornerRadius="{StaticResource Radius.Control}" Background="Transparent">
+            <Grid>
+                <!-- gold selection bar on the outer (window-edge) side -->
+                <Border x:Name="bar" Width="3" Height="22" CornerRadius="2"
+                        Background="{StaticResource Brush.Accent.Primary}"
+                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                        Visibility="Collapsed"/>
+                <StackPanel x:Name="row" Orientation="Horizontal" Margin="12,0" VerticalAlignment="Center">
+                    <Path x:Name="ic" Style="{StaticResource Shell.Icon}"
+                          Data="{TemplateBinding Tag}"/>
+                    <!-- Foreground MUST be set here: Theme.xaml is merged last and its
+                         implicit TextBlock style would otherwise win over the inherited
+                         value, freezing the label colour and killing the triggers below. -->
+                    <TextBlock x:Name="label" Text="{TemplateBinding Content}"
+                               Foreground="{TemplateBinding Foreground}"
+                               FontFamily="{StaticResource Font.UI}"
+                               FontSize="{StaticResource FontSize.Body}"
+                               FontWeight="{StaticResource FontWeight.Medium}"
+                               VerticalAlignment="Center" Margin="12,0,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="b" Property="Background" Value="{StaticResource Brush.Surface.Selected}"/>
+                <Setter TargetName="bar" Property="Visibility" Value="Visible"/>
+                <Setter Property="Foreground" Value="{StaticResource Brush.Accent.Primary}"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="b" Property="Opacity" Value="{StaticResource Opacity.Disabled}"/>
+            </Trigger>
+            <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(root:ShellChrome.IsCompact)}" Value="True">
+                <Setter TargetName="label" Property="Visibility" Value="Collapsed"/>
+                <Setter TargetName="row" Property="Margin" Value="0"/>
+                <Setter TargetName="row" Property="HorizontalAlignment" Value="Center"/>
+                <Setter TargetName="ic" Property="Width" Value="{StaticResource Size.IconCompact}"/>
+                <Setter TargetName="ic" Property="Height" Value="{StaticResource Size.IconCompact}"/>
+                <Setter TargetName="bar" Property="Height" Value="20"/>
+            </DataTrigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <Style x:Key="Nav.Item" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Margin" Value="10,2"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="ToolTipService.InitialShowDelay" Value="500"/>
+        <Setter Property="Template" Value="{StaticResource Shell.NavItemTemplate}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(root:ShellChrome.IsCompact)}" Value="True">
+                <Setter Property="Margin" Value="8,2"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- same look for command-style items (e.g. «حول البرنامج والدعم» opening a dialog) -->
+    <Style x:Key="Nav.Action" TargetType="ToggleButton">
+        <Setter Property="Foreground" Value="{StaticResource Brush.Text.Secondary}"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Margin" Value="10,2"/>
+        <Setter Property="IsTabStop" Value="True"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource Shell.FocusVisual}"/>
+        <Setter Property="ToolTipService.InitialShowDelay" Value="500"/>
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+        <Setter Property="Template" Value="{StaticResource Shell.NavItemTemplate}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(root:ShellChrome.IsCompact)}" Value="True">
+                <Setter Property="Margin" Value="8,2"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ===================== surfaces & indicators ===================== -->
+    <Style x:Key="Card.Surface" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource Brush.Surface.Raised}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Brush.Border.Subtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{StaticResource Radius.Card}"/>
+        <Setter Property="Padding" Value="{StaticResource Thickness.CardPadding}"/>
+    </Style>
+
+    <!-- brand/version pill (mono gold on soft gold) -->
+    <Style x:Key="Pill.Brand" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource Brush.Accent.SoftBackground}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource Radius.Badge}"/>
+        <Setter Property="Padding" Value="7,2"/>
+    </Style>
+
+    <!-- live-session pill (teal, session-only) -->
+    <Style x:Key="Pill.Live" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource Brush.State.LiveSoftBackground}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Brush.State.LiveBorder}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{StaticResource Radius.Badge}"/>
+        <Setter Property="Padding" Value="7,1"/>
+    </Style>
+
+    <!-- semantic state dot: pair with a text label — never color alone -->
+    <Style x:Key="Indicator.Dot" TargetType="Ellipse">
+        <Setter Property="Width" Value="8"/>
+        <Setter Property="Height" Value="8"/>
+        <Setter Property="Fill" Value="{StaticResource Brush.Text.Muted}"/>
+    </Style>
+    <Style x:Key="Indicator.DotSmall" TargetType="Ellipse" BasedOn="{StaticResource Indicator.Dot}">
+        <Setter Property="Width" Value="7"/>
+        <Setter Property="Height" Value="7"/>
+    </Style>
+
+    <!-- dividers -->
+    <Style x:Key="Divider.Horizontal" TargetType="Border">
+        <Setter Property="Height" Value="1"/>
+        <Setter Property="Background" Value="{StaticResource Brush.Border.Subtle}"/>
+    </Style>
+    <Style x:Key="Divider.Vertical" TargetType="Border">
+        <Setter Property="Width" Value="1"/>
+        <Setter Property="Background" Value="{StaticResource Brush.Border.Subtle}"/>
+    </Style>
+
+</ResourceDictionary>

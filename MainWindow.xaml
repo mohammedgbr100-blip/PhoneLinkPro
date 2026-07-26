@@ -1,86 +1,110 @@
+<!-- Size, minimum size and position are deliberately NOT declared on the Window:
+     ShellWindowBounds applies them from the live work area (ShellLayout.MeasureWindow), so
+     the shell fits a 1366×768 panel at 150% scaling — about 911×464 DIP — as well as a
+     1440×900 desktop. A fixed MinWidth/MinHeight here would push chrome off such a screen. -->
 <Window x:Class="ScrcpyDeck.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="PhoneLink Pro" Height="720" Width="1120"
-        MinHeight="560" MinWidth="920"
+        xmlns:local="clr-namespace:ScrcpyDeck"
+        Title="PhoneLink Pro"
         FlowDirection="RightToLeft"
-        WindowStartupLocation="CenterScreen"
-        Background="{StaticResource Bg}"
-        FontFamily="{StaticResource Ui}">
+        UseLayoutRounding="True"
+        Background="{StaticResource Brush.App.Background}"
+        FontFamily="{StaticResource Font.UI}">
 
     <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="50" ResizeBorderThickness="6"
+        <shell:WindowChrome CaptionHeight="44" ResizeBorderThickness="6"
                             CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
 
-    <Border BorderBrush="#33302A" BorderThickness="1">
+    <Border BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="1">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="50"/>
+                <RowDefinition Height="{StaticResource GridLength.TitleBar}"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="{StaticResource GridLength.StatusStrip}"/>
             </Grid.RowDefinitions>
 
-            <!-- ===================== TITLE BAR ===================== -->
-            <Grid Grid.Row="0" Background="{StaticResource SidebarBg}">
+            <!-- ===================== TITLE BAR (Direction D: brand right, caption left) ===================== -->
+            <Grid Grid.Row="0" Background="{StaticResource Brush.App.Background}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- logo + name (right side in RTL) -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0"
-                            FlowDirection="LeftToRight">
-                    <Image x:Name="TitleIcon" Width="26" Height="26" Margin="0,0,10,0"/>
-                    <TextBlock FontSize="16" FontWeight="Bold" VerticalAlignment="Center">
-                        <Run Text="PhoneLink" Foreground="{StaticResource Text}"/><Run Text=" Pro" Foreground="{StaticResource Adb}"/>
+                <!-- brand (visual right in RTL) -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                    <Border Width="22" Height="22" CornerRadius="{StaticResource Radius.Control}"
+                            Background="{StaticResource Brush.Accent.Fill}"
+                            TextElement.Foreground="{StaticResource Brush.Text.OnAccent}">
+                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Device}"
+                              Width="13" Height="13" StrokeThickness="2"/>
+                    </Border>
+                    <TextBlock VerticalAlignment="Center" Margin="9,0,0,0" FlowDirection="LeftToRight"
+                               FontFamily="{StaticResource Font.UI}" FontSize="{StaticResource FontSize.Subtitle}" FontWeight="Bold">
+                        <Run Text="PhoneLink" Foreground="{StaticResource Brush.Text.Primary}"/><Run Text=" Pro" Foreground="{StaticResource Brush.Accent.Primary}"/>
                     </TextBlock>
-                    <Border Background="#211B0E" CornerRadius="5" Padding="7,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <Border Style="{StaticResource Pill.Brand}" Margin="9,0,0,0" VerticalAlignment="Center">
                         <!-- Text set at runtime from AppVersionInfo (REL-03: no version literals in XAML) -->
-                        <TextBlock x:Name="VersionBadge" FontSize="10" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Adb}"/>
+                        <TextBlock x:Name="VersionBadge" FontFamily="{StaticResource Font.Mono}"
+                                   FontSize="{StaticResource FontSize.Tiny}"
+                                   Foreground="{StaticResource Brush.Accent.Primary}"
+                                   FlowDirection="LeftToRight"/>
                     </Border>
                 </StackPanel>
 
-                <!-- window controls (left side in RTL) -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                <!-- caption cluster (visual left in RTL); order matches Direction D: × ▢ − | ? ⓘ -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True"
                             FlowDirection="LeftToRight">
-                    <Button x:Name="BtnHelp" Style="{StaticResource ChromeButton}" Click="Help_Click" ToolTip="الشرح التعليمي">
-                        <TextBlock Text="&#xE897;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                    <Button x:Name="BtnClose" Style="{StaticResource Button.Caption}" Click="Close_Click"
+                            ToolTip="إغلاق" AutomationProperties.Name="إغلاق">
+                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Close}" Width="12" Height="12"/>
                     </Button>
-                    <Button x:Name="BtnAbout" Style="{StaticResource ChromeButton}" Click="About_Click" ToolTip="حول البرنامج">
-                        <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                    <Button x:Name="BtnMax" Style="{StaticResource Button.Caption}" Click="Maximize_Click"
+                            ToolTip="تكبير" AutomationProperties.Name="تكبير">
+                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Maximize}" Width="11" Height="11"/>
                     </Button>
-                    <Border Width="1" Height="20" Background="#2A2620" Margin="6,0" VerticalAlignment="Center"/>
-                    <Button x:Name="BtnMin" Style="{StaticResource ChromeButton}" Click="Minimize_Click" ToolTip="تصغير">
-                        <TextBlock Text="&#xE921;" FontFamily="Segoe MDL2 Assets" FontSize="11"/>
+                    <Button x:Name="BtnMin" Style="{StaticResource Button.Caption}" Click="Minimize_Click"
+                            ToolTip="تصغير" AutomationProperties.Name="تصغير">
+                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Minimize}" Width="12" Height="12"/>
                     </Button>
-                    <Button x:Name="BtnMax" Style="{StaticResource ChromeButton}" Click="Maximize_Click" ToolTip="تكبير">
-                        <TextBlock Text="&#xE922;" FontFamily="Segoe MDL2 Assets" FontSize="11"/>
+                    <Border Style="{StaticResource Divider.Vertical}" Height="16" Margin="6,0"/>
+                    <Button x:Name="BtnHelp" Style="{StaticResource Button.CaptionUtility}" Click="Help_Click"
+                            ToolTip="الشرح التعليمي" AutomationProperties.Name="الشرح التعليمي">
+                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Help}" Width="15" Height="15"/>
                     </Button>
-                    <Button x:Name="BtnClose" Style="{StaticResource CloseButton}" Click="Close_Click" ToolTip="إغلاق">
-                        <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/>
+                    <Button x:Name="BtnAbout" Style="{StaticResource Button.CaptionUtility}" Click="About_Click"
+                            ToolTip="حول البرنامج والدعم" AutomationProperties.Name="حول البرنامج والدعم">
+                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Info}" Width="15" Height="15"/>
                     </Button>
                 </StackPanel>
             </Grid>
 
+            <!-- title bar hairline -->
+            <Border Grid.Row="0" Style="{StaticResource Divider.Horizontal}" VerticalAlignment="Bottom"/>
+
             <!-- ============ ENGINE INTEGRITY BANNER (hidden unless verification fails) ============ -->
             <Border x:Name="IntegrityBanner" Grid.Row="1" Visibility="Collapsed"
-                    Background="#3A1E1B" BorderBrush="{StaticResource Danger}" BorderThickness="0,0,0,1"
-                    Padding="16,10">
+                    Background="{StaticResource Brush.Banner.DangerBackground}"
+                    BorderBrush="{StaticResource Brush.Banner.DangerBorder}" BorderThickness="0,0,0,1"
+                    Padding="22,9">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="16"
-                               Foreground="{StaticResource Danger}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <TextBlock Grid.Column="1" x:Name="IntegrityBannerText" TextWrapping="Wrap" FontSize="13"
-                               Foreground="{StaticResource Text}" VerticalAlignment="Center"/>
-                    <Button Grid.Column="2" x:Name="IntegrityRetryBtn" Style="{StaticResource GhostButton}"
-                            Content="إعادة الفحص" Margin="12,0,0,0" VerticalAlignment="Center"
+                    <Path Grid.Column="0" Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Warning}"
+                          Stroke="{StaticResource Brush.State.Danger}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <TextBlock Grid.Column="1" x:Name="IntegrityBannerText" TextWrapping="Wrap"
+                               FontFamily="{StaticResource Font.UI}" FontSize="{StaticResource FontSize.BodySmall}"
+                               Foreground="{StaticResource Brush.Banner.DangerText}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="2" x:Name="IntegrityRetryBtn" Style="{StaticResource Button.GhostDanger}"
+                            Content="إعادة الفحص" Margin="14,0,0,0" VerticalAlignment="Center"
                             Click="IntegrityRetry_Click"/>
                 </Grid>
             </Border>
@@ -88,40 +112,154 @@
             <!-- ===================== BODY ===================== -->
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="230"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- SIDEBAR -->
-                <Border Grid.Column="0" Background="{StaticResource SidebarBg}" BorderBrush="#1A1813" BorderThickness="1,0,0,0">
-                    <DockPanel>
-                        <!-- device chip (bottom) -->
-                        <Border DockPanel.Dock="Bottom" Style="{StaticResource Cardish}" Margin="12" Padding="12"
-                                Background="#0C0D11" BorderBrush="#26231C">
+                <!-- SIDEBAR (visual right in RTL; 248px full / 64px compact rail) -->
+                <Border Grid.Column="0" Background="{StaticResource Brush.Shell.Background}"
+                        BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="1,0,0,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Width" Value="{StaticResource Size.SidebarWidth}"/>
+                            <Setter Property="Padding" Value="0,16,0,0"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(local:ShellChrome.IsCompact)}" Value="True">
+                                    <Setter Property="Width" Value="{StaticResource Size.SidebarCompactWidth}"/>
+                                    <Setter Property="Padding" Value="0,12,0,0"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <!-- LastChildFill: the navigation is the last child, so it takes whatever
+                         vertical space is left after the device summary and footer and scrolls
+                         inside it. On a short work area the rail stays complete and reachable
+                         instead of being clipped below the window edge. -->
+                    <DockPanel LastChildFill="True">
+
+                        <!-- current-device summary: full card -->
+                        <Border x:Name="ChipCard" DockPanel.Dock="Top" Margin="14,0,14,14">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource Card.Surface}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(local:ShellChrome.IsCompact)}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <StackPanel>
-                                <TextBlock Text="الجهاز الحالي" FontSize="10" Foreground="{StaticResource Muted}" FontFamily="{StaticResource Mono}"/>
-                                <TextBlock x:Name="SidebarDeviceName" Text="لا يوجد جهاز" FontSize="13" FontWeight="SemiBold"
-                                           Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                    <Ellipse x:Name="SidebarDot" Width="8" Height="8" Fill="{StaticResource Muted}" VerticalAlignment="Center"/>
-                                    <TextBlock x:Name="SidebarDeviceState" Text="غير متصل" FontSize="11" Foreground="{StaticResource Muted}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock Style="{StaticResource Text.Caption}" Text="الجهاز الحالي" Margin="0,0,0,5"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="ChipDeviceName" Style="{StaticResource Text.Body}"
+                                               FontWeight="{StaticResource FontWeight.Medium}"
+                                               Text="لا يوجد جهاز" TextTrimming="CharacterEllipsis" MaxWidth="150"/>
+                                    <Border x:Name="ChipLivePill" Style="{StaticResource Pill.Live}" Margin="8,0,0,0"
+                                            VerticalAlignment="Center" Visibility="Collapsed">
+                                        <TextBlock Text="بث نشط" FontFamily="{StaticResource Font.UI}" FontSize="9.5"
+                                                   Foreground="{StaticResource Brush.State.Live}"/>
+                                    </Border>
+                                </StackPanel>
+                                <StackPanel x:Name="ChipSerialRow" Orientation="Horizontal" Margin="0,1,0,0"
+                                            Visibility="Collapsed">
+                                    <TextBlock x:Name="ChipSerial" Style="{StaticResource Text.Mono}" VerticalAlignment="Center"/>
+                                    <Button x:Name="BtnRevealSerial" Style="{StaticResource Button.Icon}"
+                                            Width="22" Height="22" Margin="4,0,0,0" Click="RevealSerial_Click"
+                                            ToolTip="إظهار الرقم التسلسلي" AutomationProperties.Name="إظهار الرقم التسلسلي">
+                                        <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Eye}" Width="13" Height="13"/>
+                                    </Button>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                    <Ellipse x:Name="ChipDot" Style="{StaticResource Indicator.Dot}" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ChipStateText" Style="{StaticResource Text.Secondary}"
+                                               Text="غير متصل" Margin="7,0,0,0" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
 
-                        <!-- brand footer (bottom, above device chip) -->
-                        <TextBlock DockPanel.Dock="Bottom" Text="© 2026 ENG. Mohammed Sattar" FontSize="10"
-                                   Foreground="#5A5A62" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                        <!-- current-device summary: compact tile -->
+                        <Border x:Name="ChipTile" DockPanel.Dock="Top" Width="40" Height="40"
+                                Background="{StaticResource Brush.Surface.Raised}"
+                                BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="1"
+                                CornerRadius="{StaticResource Radius.Card}" Margin="0,0,0,10"
+                                HorizontalAlignment="Center"
+                                TextElement.Foreground="{StaticResource Brush.Text.Secondary}"
+                                AutomationProperties.Name="الجهاز الحالي">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(local:ShellChrome.IsCompact)}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid>
+                                <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Device}"
+                                      Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Ellipse x:Name="TileDot" Width="10" Height="10"
+                                         Fill="{StaticResource Brush.Text.Muted}"
+                                         Stroke="{StaticResource Brush.Shell.Background}" StrokeThickness="2"
+                                         HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-4,-4,0,0"/>
+                            </Grid>
+                        </Border>
 
-                        <!-- nav -->
-                        <StackPanel DockPanel.Dock="Top" Margin="0,10,0,0">
-                            <RadioButton x:Name="NavDashboard" Style="{StaticResource NavButton}" Tag="&#xE975;" Content="لوحة الأجهزة" IsChecked="True" Checked="Nav_Checked"/>
-                            <RadioButton x:Name="NavMirror" Style="{StaticResource NavButton}" Tag="&#xE7F4;" Content="بث الشاشة" Checked="Nav_Checked"/>
-                            <RadioButton x:Name="NavWireless" Style="{StaticResource NavButton}" Tag="&#xE704;" Content="الاتصال اللاسلكي" Checked="Nav_Checked"/>
-                            <RadioButton x:Name="NavLauncher" Style="{StaticResource NavButton}" Tag="&#xE713;" Content="خيارات متقدمة" Checked="Nav_Checked"/>
-                            <RadioButton x:Name="NavApps" Style="{StaticResource NavButton}" Tag="&#xE71D;" Content="إدارة التطبيقات" Checked="Nav_Checked"/>
-                            <RadioButton x:Name="NavFiles" Style="{StaticResource NavButton}" Tag="&#xE8B7;" Content="نقل الملفات" Checked="Nav_Checked"/>
+                        <!-- footer (bottom; hidden in compact) -->
+                        <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource Brush.Border.Subtle}"
+                                BorderThickness="0,1,0,0" Padding="12,11">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=(local:ShellChrome.IsCompact)}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="© 2026 ENG. Mohammed Sattar" FlowDirection="LeftToRight"
+                                       FontFamily="{StaticResource Font.UI}" FontSize="{StaticResource FontSize.Tiny}"
+                                       Foreground="{StaticResource Brush.Text.Muted}" HorizontalAlignment="Center"/>
+                        </Border>
+
+                        <!-- navigation (fills the remaining height; scrolls when short) -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Focusable="False" Padding="0,0,0,6">
+                        <StackPanel>
+                            <RadioButton x:Name="NavDashboard" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Device}" Content="لوحة الأجهزة" ToolTip="لوحة الأجهزة"
+                                         AutomationProperties.Name="لوحة الأجهزة" IsChecked="True" Checked="Nav_Checked"/>
+                            <RadioButton x:Name="NavMirror" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Mirror}" Content="بث الشاشة" ToolTip="بث الشاشة"
+                                         AutomationProperties.Name="بث الشاشة" Checked="Nav_Checked"/>
+                            <RadioButton x:Name="NavWireless" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Wireless}" Content="الاتصال اللاسلكي" ToolTip="الاتصال اللاسلكي"
+                                         AutomationProperties.Name="الاتصال اللاسلكي" Checked="Nav_Checked"/>
+                            <RadioButton x:Name="NavLauncher" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Sliders}" Content="المشغّل المتقدم" ToolTip="المشغّل المتقدم"
+                                         AutomationProperties.Name="المشغّل المتقدم" Checked="Nav_Checked"/>
+                            <RadioButton x:Name="NavApps" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Apps}" Content="إدارة التطبيقات" ToolTip="إدارة التطبيقات"
+                                         AutomationProperties.Name="إدارة التطبيقات" Checked="Nav_Checked"/>
+                            <RadioButton x:Name="NavFiles" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Folder}" Content="نقل الملفات" ToolTip="نقل الملفات"
+                                         AutomationProperties.Name="نقل الملفات" Checked="Nav_Checked"/>
+
+                            <Border Style="{StaticResource Divider.Horizontal}" Margin="12,5"/>
+
+                            <!-- secondary navigation -->
+                            <ToggleButton x:Name="NavAboutItem" Style="{StaticResource Nav.Action}"
+                                          Tag="{StaticResource Icon.Info}" Content="حول البرنامج والدعم"
+                                          ToolTip="حول البرنامج والدعم" AutomationProperties.Name="حول البرنامج والدعم"
+                                          Click="NavAbout_Click"/>
+                            <ToggleButton x:Name="NavSettingsItem" Style="{StaticResource Nav.Action}"
+                                          Tag="{StaticResource Icon.Settings}" Content="الإعدادات"
+                                          ToolTip="الإعدادات — متاحة في تحديث قادم"
+                                          AutomationProperties.Name="الإعدادات"
+                                          IsEnabled="False"/>
                         </StackPanel>
+                        </ScrollViewer>
                     </DockPanel>
                 </Border>
 
@@ -133,6 +271,47 @@
                             HorizontalAlignment="Left" VerticalAlignment="Bottom"
                             Margin="20" IsHitTestVisible="False"/>
             </Grid>
+
+            <!-- ===================== STATUS STRIP ===================== -->
+            <Border Grid.Row="3" Background="{StaticResource Brush.Shell.Background}"
+                    BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="0,1,0,0"
+                    Padding="14,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- engine state (visual right in RTL) -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <Ellipse x:Name="EngineDot" Style="{StaticResource Indicator.DotSmall}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="EngineStatusText" Text="المحرّك: يفحص…" Margin="8,0,0,0" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.UI}" FontSize="{StaticResource FontSize.Small}"
+                                   Foreground="{StaticResource Brush.Text.Secondary}"/>
+                    </StackPanel>
+
+                    <!-- device count (center) -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="الأجهزة" FontFamily="{StaticResource Font.UI}"
+                                   FontSize="{StaticResource FontSize.Small}"
+                                   Foreground="{StaticResource Brush.Text.Muted}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DeviceCountText" Text="—" Margin="7,0,0,0" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.Mono}" FontSize="{StaticResource FontSize.Small}"
+                                   Foreground="{StaticResource Brush.Text.Primary}" FlowDirection="LeftToRight"/>
+                    </StackPanel>
+
+                    <!-- version + integrity shield (visual left in RTL) -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Path x:Name="StripShield" Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Shield}"
+                              Width="13" Height="13" Stroke="{StaticResource Brush.Text.Secondary}" VerticalAlignment="Center"/>
+                        <!-- Text set at runtime from AppVersionInfo (REL-03) -->
+                        <TextBlock x:Name="StripVersionText" Margin="7,0,0,0" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.Mono}" FontSize="{StaticResource FontSize.Tiny}"
+                                   Foreground="{StaticResource Brush.Text.Muted}" FlowDirection="LeftToRight"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Grid>
     </Border>
 </Window>

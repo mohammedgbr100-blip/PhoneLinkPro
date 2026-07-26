@@ -5,6 +5,21 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- 2.0 foundation (Batch 3A): semantic tokens + shell styles. Theme.xaml
+                     stays last for the not-yet-migrated feature pages.
+
+                     STRING resource keys are disjoint, so nothing here is shadowed by name.
+                     IMPLICIT (Type-keyed) styles are a different matter and remain an
+                     override hazard precisely BECAUSE Theme.xaml is merged last: its
+                     implicit TextBlock style wins application-wide and outranks property
+                     inheritance, so any TextBlock without a local Foreground takes Theme's
+                     colour. New shell templates must therefore set Foreground explicitly, or
+                     shadow the implicit style in their own ControlTemplate.Resources
+                     (see Shell.ButtonContentText in ShellStyles.xaml). Retiring Theme.xaml's
+                     implicit TextBlock style is deferred until the feature pages migrate. -->
+                <ResourceDictionary Source="Themes/DesignTokens.xaml"/>
+                <ResourceDictionary Source="Themes/Icons.xaml"/>
+                <ResourceDictionary Source="Themes/ShellStyles.xaml"/>
                 <ResourceDictionary Source="Themes/Theme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>

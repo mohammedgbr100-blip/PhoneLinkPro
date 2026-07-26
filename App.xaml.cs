@@ -32,27 +32,90 @@ public partial class App : Application
             return;
         }
 
-        // Hidden self-test: construct every window to catch XAML/resource errors, then exit.
-        // Bypasses the single-instance gate deliberately: it starts no watcher and no ADB,
-        // so a developer's open app must not fail the build tooling.
+        // Hidden design-QA tool: render the shell offscreen at the approved reference sizes
+        // and exit with a meaningful code. Checked HERE — ahead of the single-instance gate,
+        // consent, integrity verification and every engine service — so it never starts ADB
+        // or the device watcher, never claims engine-service ownership, and never disturbs a
+        // running normal instance. Activates ONLY on the exact value; see
+        // ShellSnapshotToolMode for the validation and watchdog contract.
+        if (ShellSnapshotToolMode.IsRequested())
+        {
+            // The capture closes the shell when it is done. Under the default
+            // OnLastWindowClose that would shut the app down with code 0 BEFORE the real
+            // exit code is applied, making a failed capture look successful.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            var prepared = ShellSnapshotToolMode.Prepare();
+            if (prepared != ShellSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            // StartupUri still creates the shell, but its constructor has already parked it
+            // offscreen (ShellSnapshotToolMode.IsActive), so nothing flashes on the desktop.
+            // ApplicationIdle runs after that window exists and is shown.
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await ShellSnapshotToolMode.RunAsync(() => MainWindow);
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
+        // Hidden self-test: construct every window to catch XAML/resource errors, then verify
+        // the RENDERED design contract (Theme.xaml's implicit TextBlock style outranks
+        // inheritance, so XAML alone cannot prove a control paints the right colour), then
+        // exit. Bypasses the single-instance gate deliberately: it starts no watcher and no
+        // ADB, so a developer's open app must not fail the build tooling.
         if (Environment.GetEnvironmentVariable("PLP_SELFTEST") == "1")
         {
             var log = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "plp_selftest.txt");
+            // The assertions below open and close windows; the default OnLastWindowClose
+            // would end the run at the first teardown.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            // No shell built below may run the startup path: the self-test starts no watcher,
+            // no integrity verification and no ADB, exactly as before.
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
             try
             {
-                _ = new Windows.ConsentWindow();
-                _ = new Windows.OnboardingWindow();
-                _ = new Windows.AboutWindow();
-                _ = new Windows.PolicyWindow();
-                _ = new MainWindow();
-                System.IO.File.WriteAllText(log, "OK: all windows constructed");
+                // Constructed to catch XAML/resource errors, then CLOSED: the self-test must
+                // not leave a MainWindow subscribed to the static service events, or the
+                // lifecycle assertions below would measure the harness instead of the shell.
+                var constructed = new List<Window>
+                {
+                    new Windows.ConsentWindow(),
+                    new Windows.OnboardingWindow(),
+                    new Windows.AboutWindow(),
+                    new Windows.PolicyWindow(),
+                    new MainWindow(),
+                };
+                foreach (var window in constructed)
+                {
+                    try { window.Close(); } catch { /* teardown is best effort */ }
+                }
+
+                var design = ShellRenderSelfTest.Run();
+                var fit = ShellFitSelfTest.Run();
+                var lifecycle = ShellLifecycleSelfTest.Run();
+                var passed = design.Passed && fit.Passed && lifecycle.Passed;
+
+                System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
+                {
+                    "OK: all windows constructed",
+                    (design.Passed ? "OK: " : "FAIL: ") + design.Report,
+                    (fit.Passed ? "OK: " : "FAIL: ") + fit.Report,
+                    (lifecycle.Passed ? "OK: " : "FAIL: ") + lifecycle.Report,
+                }));
+                Shutdown(passed ? 0 : 1);
+                return;
             }
             catch (Exception ex)
             {
                 System.IO.File.WriteAllText(log, "FAIL: " + ex);
+                Shutdown(1);
+                return;
             }
-            Shutdown();
-            return;
         }
 
         // Single instance per user session (P3-02). A second launch wakes the first
