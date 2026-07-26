@@ -5,10 +5,12 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using ScrcpyDeck.Models;
 using ScrcpyDeck.Views;
+using ScrcpyDeck.Windows;
 
 namespace ScrcpyDeck.Services;
 
@@ -507,6 +509,151 @@ internal static class DashboardVisualSelfTest
                 }
             }
 
+            // ---- L: M4 repair — a successful device-setup-wizard result repaints this Dashboard
+            // immediately (AppState, hero, other-devices list, focus) from the wizard's own
+            // result alone, with no DeviceWatcher event raised afterward. Hosted in a real
+            // (offscreen) Window, like scenario K, because the focus assertion below needs an
+            // actual keyboard-focus scope to mean anything.
+            {
+                var window = new Window
+                {
+                    Width = 1200,
+                    Height = 820,
+                    Left = -6000,
+                    Top = 100,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    ShowInTaskbar = false,
+                    ShowActivated = false,
+                };
+                var view = new DashboardView();
+                window.Content = view;
+
+                try
+                {
+                    window.Show();
+                    view.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                    SettleWindow(window);
+
+                    var deviceA = new AdbDevice { Serial = "m4-device-a", State = "device", Model = "Pixel 8" };
+                    var ex = Raise(new List<AdbDevice> { deviceA });
+                    SettleWindow(window);
+                    Expect("L: no exception seeding device A", ex == null);
+                    Expect("L: hero starts on device A", view.HeroDeviceForTests?.Serial == deviceA.Serial);
+
+                    var deviceB = new AdbDevice { Serial = "m4-device-b", State = "device", Model = "Galaxy S24" };
+                    var result = new DeviceSetupWizardWindow.SetupWizardResult(
+                        deviceB, new List<AdbDevice> { deviceA, deviceB });
+
+                    // The one action under test: no DeviceWatcher event follows this call.
+                    view.ApplySetupResult(result);
+                    SettleWindow(window);
+
+                    Expect("L: AppState is device B immediately after the result is applied",
+                        AppState.CurrentSerial == deviceB.Serial);
+                    Expect("L: the hero now shows device B", view.HeroDeviceForTests?.Serial == deviceB.Serial);
+                    Expect("L: the hero name reflects device B", view.HeroDeviceName.Text.Contains("Galaxy S24"));
+                    Expect("L: the hero caption truthfully says \"الجهاز الحالي\" for device B",
+                        view.HeroDeviceLabel.Text == "الجهاز الحالي");
+
+                    var others = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList()
+                                 ?? new List<AdbDevice>();
+                    Expect("L: device A moved to the other-devices list", others.Any(d => d.Serial == deviceA.Serial));
+                    Expect("L: device B (the new hero) is excluded from the other-devices list",
+                        others.All(d => d.Serial != deviceB.Serial));
+                    Expect("L: HeroStartBtn targets the new hero device B",
+                        (string?)view.HeroStartBtn.Tag == deviceB.Serial);
+                    Expect("L: focus returns to HeroStartBtn (enabled for an authorized device)",
+                        Keyboard.FocusedElement == view.HeroStartBtn);
+
+                    view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                }
+                finally
+                {
+                    try { window.Close(); } catch { /* teardown is best effort */ }
+                }
+            }
+
+            // ---- M: Batch 4B race repair — an older, still-in-flight RefreshAsync discovery
+            // (paused at the same DiscoverDevicesOverrideForTests seam
+            // DashboardMissedUpdateOrderingSelfTest scenario A already uses) must not be allowed
+            // to repaint device A back over the top of a setup-wizard result that has since
+            // selected device B, even though that older refresh's own devices-A snapshot is the
+            // more "recent" wall-clock arrival once it finally resolves. Proves the
+            // _lastAppliedSequence bump inside ApplySetupResult, not just inside
+            // ApplyDevicesCoreAsync's own sequence check the ordering self-test already covers.
+            {
+                var wasDiscoverOverride = DashboardView.DiscoverDevicesOverrideForTests;
+                var view = new DashboardView();
+                Load(view);
+                try
+                {
+                    var deviceA = new AdbDevice { Serial = "m4b-race-device-a", State = "device", Model = "Pixel 8" };
+                    var exSeed = Raise(new List<AdbDevice> { deviceA });
+                    Settle(view);
+                    Expect("M: no exception seeding device A", exSeed == null);
+                    Expect("M: hero starts on device A", view.HeroDeviceForTests?.Serial == deviceA.Serial);
+
+                    // The older, in-flight refresh: its discovery is paused here, deliberately
+                    // before the setup-wizard result below is applied.
+                    var discoverTcs = new TaskCompletionSource<DeviceDiscoveryResult>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    DashboardView.DiscoverDevicesOverrideForTests = () => discoverTcs.Task;
+                    view.OnShown();   // starts RefreshAsync; pauses at discoverTcs.Task, still holding busy
+
+                    // The newer event: a successful setup-wizard result selecting device B,
+                    // applied while the older refresh above is still suspended mid-flight.
+                    var deviceB = new AdbDevice { Serial = "m4b-race-device-b", State = "device", Model = "Galaxy S24" };
+                    var result = new DeviceSetupWizardWindow.SetupWizardResult(
+                        deviceB, new List<AdbDevice> { deviceA, deviceB });
+                    view.ApplySetupResult(result);
+
+                    var othersRightAfter = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList()
+                                           ?? new List<AdbDevice>();
+                    Expect("M1: AppState is device B immediately after the wizard result is applied",
+                        AppState.CurrentSerial == deviceB.Serial);
+                    Expect("M2: the hero is device B immediately after the wizard result is applied",
+                        view.HeroDeviceForTests?.Serial == deviceB.Serial);
+                    Expect("M3: device B is excluded from the other-device list",
+                        othersRightAfter.All(d => d.Serial != deviceB.Serial));
+                    Expect("M4: device A appears in the other-device list",
+                        othersRightAfter.Any(d => d.Serial == deviceA.Serial));
+
+                    // Release the older refresh's discovery now, carrying its own (older) full
+                    // A+B-less snapshot of just device A — exactly what production code observed
+                    // before the wizard ever opened.
+                    discoverTcs.SetResult(DeviceDiscoveryResult.Success(new List<AdbDevice> { deviceA }));
+                    Pump();   // let the stale continuation run to completion, drain included
+                    Settle(view);
+
+                    var othersAfterStaleResume = (view.DeviceList.ItemsSource as IEnumerable<AdbDevice>)?.ToList()
+                                                  ?? new List<AdbDevice>();
+                    Expect("M5: AppState remains device B after the stale refresh resolves",
+                        AppState.CurrentSerial == deviceB.Serial);
+                    Expect("M6: the hero remains device B after the stale refresh resolves",
+                        view.HeroDeviceForTests?.Serial == deviceB.Serial);
+                    Expect("M7: the hero label still truthfully names device B",
+                        view.HeroDeviceName.Text.Contains("Galaxy S24"));
+                    Expect("M8: HeroStartBtn still targets device B",
+                        (string?)view.HeroStartBtn.Tag == deviceB.Serial);
+                    Expect("M9: device B remains excluded from the other-device list",
+                        othersAfterStaleResume.All(d => d.Serial != deviceB.Serial));
+                    Expect("M10: device A remains present in the other-device list",
+                        othersAfterStaleResume.Any(d => d.Serial == deviceA.Serial));
+                    Expect("M11: the stale refresh did not repaint device A as the hero caption",
+                        view.HeroDeviceLabel.Text == "الجهاز الحالي" &&
+                        view.HeroDeviceName.Text.Contains("Galaxy S24"));
+
+                    lines.AppendLine(
+                        $"  M: hero right-after-wizard={deviceB.Serial}, " +
+                        $"hero after stale resume={view.HeroDeviceForTests?.Serial ?? "?"}");
+                }
+                finally
+                {
+                    DashboardView.DiscoverDevicesOverrideForTests = wasDiscoverOverride;
+                    Unload(view);
+                }
+            }
+
             Expect("2: zero WPF binding errors across every scenario above (B1 repair)",
                 bindingErrors.Count == 0);
             if (bindingErrors.Count > 0)
@@ -515,7 +662,8 @@ internal static class DashboardVisualSelfTest
             lines.AppendLine("  scenarios: empty, multi-device+hero-exclusion, long-identity, " +
                              "automation-names, device-watcher-subscription, mirror-live-state+reveal-persistence, " +
                              "reveal-identity-change, other-device-row-borders, single-device, " +
-                             "unauthorized-fallback, masked-list-serial, physical-rtl-row-geometry — " +
+                             "unauthorized-fallback, masked-list-serial, physical-rtl-row-geometry, " +
+                             "setup-wizard-immediate-repaint, setup-wizard-stale-refresh-race — " +
                              "see failures (if any) below");
         }
         catch (Exception ex)

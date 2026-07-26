@@ -90,6 +90,29 @@ public partial class App : Application
             return;
         }
 
+        // Hidden design-QA tool (Batch 4B): same placement/reasoning as the Dashboard snapshot
+        // mode above — renders the device-setup wizard offscreen for a fixed set of scenarios,
+        // ahead of every real service, and never touches MainWindow's own startup path.
+        if (DeviceSetupWizardSnapshotToolMode.IsRequested())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            var prepared = DeviceSetupWizardSnapshotToolMode.Prepare();
+            if (prepared != DeviceSetupWizardSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await DeviceSetupWizardSnapshotToolMode.RunAsync();
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
         // Hidden self-test: construct every window to catch XAML/resource errors, then verify
         // the RENDERED design contract (Theme.xaml's implicit TextBlock style outranks
         // inheritance, so XAML alone cannot prove a control paints the right colour), then
@@ -115,6 +138,7 @@ public partial class App : Application
                     new Windows.OnboardingWindow(),
                     new Windows.AboutWindow(),
                     new Windows.PolicyWindow(),
+                    new Windows.DeviceSetupWizardWindow(),
                     new MainWindow(),
                 };
                 foreach (var window in constructed)
@@ -134,9 +158,13 @@ public partial class App : Application
                 // Batch 4A: proves the Dashboard 2.0 visual layer renders every fixture without
                 // exception and exposes the accessibility contract Phase 5 requires.
                 var dashboardVisual = DashboardVisualSelfTest.Run();
+                // Batch 4B: proves the device-setup wizard renders every real ADB state
+                // truthfully, masks serials, gates Finish correctly and cleans up its
+                // DeviceWatcher subscription.
+                var setupWizard = DeviceSetupWizardSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
                              && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
-                             && dashboardVisual.Passed;
+                             && dashboardVisual.Passed && setupWizard.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -148,6 +176,7 @@ public partial class App : Application
                     (dashboardStale.Passed ? "OK: " : "FAIL: ") + dashboardStale.Report,
                     (dashboardOrdering.Passed ? "OK: " : "FAIL: ") + dashboardOrdering.Report,
                     (dashboardVisual.Passed ? "OK: " : "FAIL: ") + dashboardVisual.Report,
+                    (setupWizard.Passed ? "OK: " : "FAIL: ") + setupWizard.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;

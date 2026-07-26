@@ -131,11 +131,12 @@ public sealed class DashboardVisualTests
     }
 
     [Fact] // [REGRESSION] the hero paint routine only runs from the same points
-           // ApplyDevicesCoreAsync/ShowEmpty already existed at — never from a new async entry
-           // point. Structural: verifies each call site is textually INSIDE the expected
-           // method's own extracted body, not merely that the total occurrence count matches
-           // (a plain count cannot tell a legitimate call site from one moved elsewhere).
-    public void Source_UpdateHeroIsCalledOnlyFromApplyDevicesCoreAsyncAndShowEmpty()
+           // ApplyDevicesCoreAsync/ShowEmpty already existed at, plus the one deliberate M4
+           // addition (ApplySetupResult) — never from a new, untracked async entry point.
+           // Structural: verifies each call site is textually INSIDE the expected method's own
+           // extracted body, not merely that the total occurrence count matches (a plain count
+           // cannot tell a legitimate call site from one moved elsewhere).
+    public void Source_UpdateHeroIsCalledOnlyFromApplyDevicesCoreAsyncShowEmptyAndApplySetupResult()
     {
         var rawCode = TestPaths.ReadRepoFile("Views", "DashboardView.xaml.cs");
         // Comments stripped so a doc-comment MENTIONING "UpdateHero(" (e.g. explaining what
@@ -148,16 +149,19 @@ public sealed class DashboardVisualTests
 
         var applyBody = ExtractMethodBody(code, "private async Task ApplyDevicesCoreAsync(");
         var showEmptyBody = ExtractMethodBody(code, "private void ShowEmpty(");
+        var applySetupResultBody = ExtractMethodBody(code, "internal void ApplySetupResult(");
         var callsInApply = System.Text.RegularExpressions.Regex.Matches(applyBody, @"UpdateHero\(").Count;
         var callsInShowEmpty = System.Text.RegularExpressions.Regex.Matches(showEmptyBody, @"UpdateHero\(").Count;
+        var callsInApplySetupResult = System.Text.RegularExpressions.Regex.Matches(applySetupResultBody, @"UpdateHero\(").Count;
         Assert.Equal(2, callsInApply);       // pre- and post-enrichment
         Assert.Equal(1, callsInShowEmpty);
+        Assert.Equal(1, callsInApplySetupResult);
 
-        // Every call site in the whole file must fall inside one of those two method bodies —
+        // Every call site in the whole file must fall inside one of those three method bodies —
         // catches a call added to some new async entry point that a bare total-count check
-        // would miss as long as the grand total still added up to three.
+        // would miss as long as the grand total still added up.
         var totalCalls = System.Text.RegularExpressions.Regex.Matches(code, @"UpdateHero\(").Count;
-        Assert.Equal(definitions + callsInApply + callsInShowEmpty, totalCalls);
+        Assert.Equal(definitions + callsInApply + callsInShowEmpty + callsInApplySetupResult, totalCalls);
     }
 
     [Fact] // [REGRESSION] M1 repair: the dead "selected lower row" presentation is gone —
@@ -266,6 +270,27 @@ public sealed class DashboardVisualTests
         Assert.DoesNotContain("Text=\"{Binding DisplayName}\"", rowXaml);
         Assert.Contains("{Binding Serial, Converter={StaticResource MaskSerial}}", rowXaml);
         Assert.Contains("Converter={StaticResource SafeDeviceLabel}", rowXaml);
+    }
+
+    [Fact] // [REGRESSION] Batch 4B race repair: ApplySetupResult must advance the sequence
+           // guard (_lastAppliedSequence = ++_nextSequence) BEFORE it applies the selected
+           // device, so a still-in-flight older refresh/watcher continuation can never overwrite
+           // a setup-wizard result once it resolves. The behavioral proof that this guard
+           // actually prevents the overwrite lives in DashboardVisualSelfTest scenario M (source
+           // presence alone cannot demonstrate a race is actually closed) — this only confirms
+           // the guard line was not silently dropped or reordered.
+    public void Source_ApplySetupResultAdvancesSequenceGuardBeforeApplyingSelectedDevice()
+    {
+        var rawCode = TestPaths.ReadRepoFile("Views", "DashboardView.xaml.cs");
+        var code = System.Text.RegularExpressions.Regex.Replace(rawCode, @"//[^\n]*", "");
+        var body = ExtractMethodBody(code, "internal void ApplySetupResult(");
+
+        var guardIndex = body.IndexOf("_lastAppliedSequence = ++_nextSequence;", StringComparison.Ordinal);
+        var setCurrentIndex = body.IndexOf("AppState.SetCurrent(result.SelectedDevice);", StringComparison.Ordinal);
+        Assert.True(guardIndex >= 0, "ApplySetupResult must advance _lastAppliedSequence");
+        Assert.True(setCurrentIndex >= 0, "ApplySetupResult must apply result.SelectedDevice to AppState");
+        Assert.True(guardIndex < setCurrentIndex,
+            "the sequence guard must be advanced before the selected device is applied");
     }
 
     [Fact] // [REGRESSION] M2 repair: the lower list is populated from a filtered "other

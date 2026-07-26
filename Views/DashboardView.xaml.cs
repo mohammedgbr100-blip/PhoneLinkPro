@@ -503,6 +503,42 @@ public partial class DashboardView : UserControl, IRefreshable
         }
     }
 
+    /// <summary>
+    /// Opens the guided device-setup wizard (Batch 4B), seeded with this view's own already-known
+    /// snapshot — the hero device plus every other discovered device — so no second discovery
+    /// call is made just to open a dialog. Manually opened only; there is no automatic first-run
+    /// trigger. M4 repair: a successful Finish now repaints this Dashboard immediately from the
+    /// wizard's own result, rather than waiting for an unrelated DeviceWatcher event.
+    /// </summary>
     private void Help_Click(object sender, RoutedEventArgs e)
-        => new Windows.OnboardingWindow { Owner = Window.GetWindow(this) }.ShowDialog();
+    {
+        var devices = new List<AdbDevice>();
+        if (_heroDevice != null) devices.Add(_heroDevice);
+        if (DeviceList.ItemsSource is IEnumerable<AdbDevice> others) devices.AddRange(others);
+
+        var wizard = new Windows.DeviceSetupWizardWindow(devices, _heroDevice?.Serial)
+            { Owner = Window.GetWindow(this) };
+        var accepted = wizard.ShowDialog();
+        if (accepted == true && wizard.Result != null) ApplySetupResult(wizard.Result);
+    }
+
+    /// <summary>
+    /// M4 repair: the one authoritative path that applies a successful device-setup-wizard
+    /// result to this Dashboard — AppState, hero, other-devices list and focus all update
+    /// synchronously from the SAME snapshot the wizard just confirmed, with no second discovery
+    /// call and no dependency on a DeviceWatcher event that may never arrive (or may arrive much
+    /// later) to trigger the repaint. Bumping the applied-sequence counter (Batch 3D's ordering
+    /// guard) means an unrelated refresh/watcher snapshot that was already in flight when the
+    /// wizard opened can never overwrite this result once it resolves.
+    /// </summary>
+    internal void ApplySetupResult(Windows.DeviceSetupWizardWindow.SetupWizardResult result)
+    {
+        _lastAppliedSequence = ++_nextSequence;
+        AppState.SetCurrent(result.SelectedDevice);
+        ApplyOtherDevicesList(result.LatestSnapshot.ToList(), result.SelectedDevice);
+        UpdateHero(result.SelectedDevice);
+
+        if (HeroStartBtn.IsEnabled) HeroStartBtn.Focus();
+        else RefreshBtn.Focus();
+    }
 }

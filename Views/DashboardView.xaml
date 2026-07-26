@@ -69,9 +69,9 @@
                             <TextBlock Text="وصّل هاتفك عبر USB وفعّل تصحيح USB، أو استخدم تبويب الاتصال اللاسلكي."
                                        Style="{StaticResource Text.Secondary}" HorizontalAlignment="Center"
                                        TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                            <Button Style="{StaticResource Button.Ghost}" Content="شاهد الشرح التعليمي"
+                            <Button Style="{StaticResource Button.Ghost}" Content="إعداد الهاتف خطوة بخطوة"
                                     Margin="0,16,0,0" HorizontalAlignment="Center" Click="Help_Click"
-                                    AutomationProperties.Name="شاهد الشرح التعليمي"/>
+                                    AutomationProperties.Name="إعداد الهاتف خطوة بخطوة"/>
                         </StackPanel>
 
                         <!-- live variant: compact Direction D composition — phone (right) · identity
