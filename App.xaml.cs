@@ -98,7 +98,9 @@ public partial class App : Application
                 var design = ShellRenderSelfTest.Run();
                 var fit = ShellFitSelfTest.Run();
                 var lifecycle = ShellLifecycleSelfTest.Run();
-                var passed = design.Passed && fit.Passed && lifecycle.Passed;
+                // Batch 3B: proves DashboardView releases its DeviceWatcher subscription.
+                var dashboard = DashboardLifecycleSelfTest.Run();
+                var passed = design.Passed && fit.Passed && lifecycle.Passed && dashboard.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -106,6 +108,7 @@ public partial class App : Application
                     (design.Passed ? "OK: " : "FAIL: ") + design.Report,
                     (fit.Passed ? "OK: " : "FAIL: ") + fit.Report,
                     (lifecycle.Passed ? "OK: " : "FAIL: ") + lifecycle.Report,
+                    (dashboard.Passed ? "OK: " : "FAIL: ") + dashboard.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;

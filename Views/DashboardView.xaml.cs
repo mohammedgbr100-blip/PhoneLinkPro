@@ -11,11 +11,50 @@ public partial class DashboardView : UserControl, IRefreshable
     private bool _busy;
     private List<AdbDevice>? _missedUpdate;
 
+    /// <summary>True while this instance holds the DeviceWatcher.DevicesChanged subscription.</summary>
+    private bool _watcherSubscribed;
+
+    /// <summary>
+    /// STA self-test harness switch (mirrors MainWindow.SuppressStartupForHarness): when set,
+    /// Loaded still subscribes exactly as in production, but skips the device refresh. This
+    /// build's own output directory carries the real engine binaries (CopyEngineToBuild), so
+    /// unlike the xUnit test host — where no engine folder exists and ToolLocator.AdbAvailable
+    /// is naturally false — PLP_SELFTEST would otherwise start a real PhoneLink.Bridge.exe.
+    /// Never set outside PLP_SELFTEST.
+    /// </summary>
+    internal static bool SuppressRefreshForHarness;
+
     public DashboardView()
     {
         InitializeComponent();
-        Loaded += (_, _) => _ = RefreshAsync();
-        DeviceWatcher.DevicesChanged += devices => _ = ApplyDevicesAsync(devices);
+        Loaded += DashboardView_Loaded;
+        Unloaded += DashboardView_Unloaded;
+    }
+
+    // MainWindow caches one DashboardView instance per process and swaps it in and out of
+    // PageHost.Content as the user navigates; that reconnects/disconnects it from the visual
+    // tree, so Loaded/Unloaded fire repeatedly on the SAME instance rather than once per page
+    // visit. The DeviceWatcher.DevicesChanged subscription must track exactly that lifetime.
+    private void DashboardView_Loaded(object sender, RoutedEventArgs e)
+    {
+        Subscribe();
+        if (!SuppressRefreshForHarness) _ = RefreshAsync();
+    }
+
+    private void DashboardView_Unloaded(object sender, RoutedEventArgs e) => Unsubscribe();
+
+    private void Subscribe()
+    {
+        if (_watcherSubscribed) return;
+        DeviceWatcher.DevicesChanged += OnDevicesChanged;
+        _watcherSubscribed = true;
+    }
+
+    private void Unsubscribe()
+    {
+        if (!_watcherSubscribed) return;
+        DeviceWatcher.DevicesChanged -= OnDevicesChanged;
+        _watcherSubscribed = false;
     }
 
     public void OnShown() => _ = RefreshAsync();
@@ -58,6 +97,9 @@ public partial class DashboardView : UserControl, IRefreshable
             RefreshBtn.IsEnabled = true;
         }
     }
+
+    /// <summary>Named DeviceWatcher.DevicesChanged handler, wired only while Loaded.</summary>
+    private void OnDevicesChanged(List<AdbDevice> devices) => _ = ApplyDevicesAsync(devices);
 
     /// <summary>
     /// Called by DeviceWatcher when devices appear/disappear/change state. A watcher update
