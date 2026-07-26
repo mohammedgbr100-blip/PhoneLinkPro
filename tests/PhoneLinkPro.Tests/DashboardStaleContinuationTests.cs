@@ -98,7 +98,10 @@ public sealed class DashboardStaleContinuationTests
         var code = TestPaths.ReadRepoFile("Views", "DashboardView.xaml.cs");
         var body = ExtractMethodBody(code, "private async Task ApplyDevicesCoreAsync(");
 
-        var entryGuard = body.IndexOf("if (!IsCurrent(generation)) return;", StringComparison.Ordinal);
+        // Batch 3D added a sequence check alongside the original generation check — both must
+        // still gate entry together, not weaken the original guard.
+        var entryGuard = body.IndexOf(
+            "if (!IsCurrent(generation) || sequence <= _lastAppliedSequence) return;", StringComparison.Ordinal);
         var enrichAwait = body.IndexOf("await Task.WhenAll(", StringComparison.Ordinal);
         var postAwaitGuard = body.IndexOf(
             "if (!IsCurrent(generation)) return;", enrichAwait, StringComparison.Ordinal);
@@ -170,16 +173,18 @@ public sealed class DashboardStaleContinuationTests
         return System.Text.RegularExpressions.Regex.Replace(noComments, @"\s+", " ").Trim();
     }
 
-    [Fact] // the captured generation is threaded through every entry point that starts work
-    public void Source_EveryEntryPointCapturesGenerationBeforeItsFirstAwait()
+    [Fact] // the captured generation and sequence are threaded through every entry point that
+           // starts or resumes work (Batch 3D added the sequence parameter)
+    public void Source_EveryEntryPointCapturesGenerationAndSequenceBeforeItsFirstAwait()
     {
         var code = TestPaths.ReadRepoFile("Views", "DashboardView.xaml.cs");
 
         Assert.Contains("var generation = _generation;", code);
-        Assert.Contains("ApplyDevicesCoreAsync(result.Devices.ToList(), generation);", code);
-        Assert.Contains("ApplyDevicesCoreAsync(known.ToList(), generation);", code);
-        Assert.Contains("ApplyDevicesCoreAsync(devices, generation);", code);
-        Assert.Contains("ApplyDevicesCoreAsync(queued, generation);", code);
+        Assert.Contains("var sequence = ++_nextSequence;", code);
+        Assert.Contains("ApplyDevicesCoreAsync(result.Devices.ToList(), generation, sequence);", code);
+        Assert.Contains("ApplyDevicesCoreAsync(known.ToList(), generation, sequence);", code);
+        Assert.Contains("ApplyDevicesCoreAsync(devices, generation, sequence);", code);
+        Assert.Contains("ApplyDevicesCoreAsync(queued.Devices, generation, queued.Sequence);", code);
     }
 
     [Fact] // the enrichment call site actually reaches for the test seam before the real one

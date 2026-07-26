@@ -9,7 +9,32 @@ namespace ScrcpyDeck.Views;
 public partial class DashboardView : UserControl, IRefreshable
 {
     private bool _busy;
-    private List<AdbDevice>? _missedUpdate;
+
+    /// <summary>
+    /// The most recent watcher/refresh snapshot observed while _busy was already claimed by
+    /// another operation, coalesced to the latest arrival — paired with the sequence number it
+    /// was assigned when observed (Batch 3D), so whoever eventually dequeues it can tell
+    /// whether something newer has already been applied in the meantime.
+    /// </summary>
+    private (List<AdbDevice> Devices, int Sequence)? _missedUpdate;
+
+    /// <summary>
+    /// Bumped once for every snapshot this instance observes — from RefreshAsync's own
+    /// discovery attempt and from every DeviceWatcher.DevicesChanged event alike — so ordering
+    /// can be judged consistently between the two entry points (Batch 3D).
+    /// </summary>
+    private int _nextSequence;
+
+    /// <summary>
+    /// The sequence of the most recent snapshot actually applied to DeviceList/AppState.
+    /// ApplyDevicesCoreAsync refuses to apply anything whose sequence is not strictly greater,
+    /// so a snapshot left queued behind a result that has since been applied — whether because
+    /// the operation that queued behind it simply finished before reaching it, or because that
+    /// operation threw before it could drain the queue at all — can never overwrite that result
+    /// once it is eventually attempted (Batch 3D; closes the ordering gap identified during the
+    /// Batch 3C review).
+    /// </summary>
+    private int _lastAppliedSequence;
 
     /// <summary>True while this instance holds the DeviceWatcher.DevicesChanged subscription.</summary>
     private bool _watcherSubscribed;
@@ -47,6 +72,17 @@ public partial class DashboardView : UserControl, IRefreshable
     /// prove the stale-continuation guard without ever starting a real adb/bridge process.
     /// </summary>
     internal static Func<AdbDevice, Task>? EnrichOverrideForTests;
+
+    /// <summary>
+    /// Test-only replacement for AdbService.DiscoverDevicesAsync (Batch 3D). AdbService exposes
+    /// no injectable seam for this call and must not gain one just for a test, so the seam lives
+    /// here instead: null in production, meaning the "??" fallback below always resolves to the
+    /// real call (with its default CancellationToken). Settable only by the Batch 3D
+    /// missed-update-ordering self-test, to pause RefreshAsync's discovery at a controlled point
+    /// via a TaskCompletionSource and prove the ordering guard without ever starting a real
+    /// adb/bridge process.
+    /// </summary>
+    internal static Func<Task<DeviceDiscoveryResult>>? DiscoverDevicesOverrideForTests;
 
     public DashboardView()
     {
@@ -99,6 +135,10 @@ public partial class DashboardView : UserControl, IRefreshable
         if (_busy) return;
         _busy = true;
         var generation = _generation;
+        // Batch 3D: claimed now — the moment this refresh commits to being an observation
+        // attempt — so a watcher event that arrives later, even while discovery is still in
+        // flight, is correctly treated as newer than whatever this refresh goes on to apply.
+        var sequence = ++_nextSequence;
         RefreshBtn.IsEnabled = false;
         try
         {
@@ -106,25 +146,32 @@ public partial class DashboardView : UserControl, IRefreshable
             {
                 ShowEmpty("تعذّر العثور على محرّك التشغيل — يُرجى إعادة تثبيت البرنامج.");
                 DeviceList.ItemsSource = null;
-                return;
-            }
-
-            DeviceWatcher.Invalidate();
-            var result = await AdbService.DiscoverDevicesAsync();
-
-            if (result.IsSuccess)
-            {
-                await ApplyDevicesCoreAsync(result.Devices.ToList(), generation);
             }
             else
             {
-                // Device state is unknown, not empty: keep showing what we last confirmed
-                // rather than wrongly reporting that everything unplugged (DEV-01).
-                var known = DeviceWatcher.LastConfirmed;
-                if (known.Count > 0) await ApplyDevicesCoreAsync(known.ToList(), generation);
-                else if (IsCurrent(generation))
-                    ShowEmpty("تعذّر قراءة قائمة الأجهزة — سيُعاد المحاولة تلقائياً.");
+                DeviceWatcher.Invalidate();
+                var discover = DiscoverDevicesOverrideForTests ?? (() => AdbService.DiscoverDevicesAsync());
+                var result = await discover();
+
+                if (result.IsSuccess)
+                {
+                    await ApplyDevicesCoreAsync(result.Devices.ToList(), generation, sequence);
+                }
+                else
+                {
+                    // Device state is unknown, not empty: keep showing what we last confirmed
+                    // rather than wrongly reporting that everything unplugged (DEV-01).
+                    var known = DeviceWatcher.LastConfirmed;
+                    if (known.Count > 0) await ApplyDevicesCoreAsync(known.ToList(), generation, sequence);
+                    else if (IsCurrent(generation))
+                        ShowEmpty("تعذّر قراءة قائمة الأجهزة — سيُعاد المحاولة تلقائياً.");
+                }
             }
+
+            // Batch 3D: a watcher snapshot that arrived while this refresh held _busy must not
+            // be left dangling for the next, unrelated caller to dequeue and misapply out of
+            // order — drain it here, in order, before this refresh gives up ownership.
+            await DrainQueuedUpdatesAsync(generation);
         }
         finally
         {
@@ -143,30 +190,44 @@ public partial class DashboardView : UserControl, IRefreshable
 
     /// <summary>
     /// Called by DeviceWatcher when devices appear/disappear/change state. A watcher update
-    /// arriving while a manual refresh is running is queued rather than dropped (DEV-02).
+    /// arriving while a manual refresh is running is queued rather than dropped (DEV-02),
+    /// coalesced to the latest arrival if more than one queues up before it can be serviced.
     /// </summary>
     private async Task ApplyDevicesAsync(List<AdbDevice> devices)
     {
-        if (_busy) { _missedUpdate = devices; return; }
+        var sequence = ++_nextSequence;
+        if (_busy) { _missedUpdate = (devices, sequence); return; }
 
         _busy = true;
         var generation = _generation;
         try
         {
-            await ApplyDevicesCoreAsync(devices, generation);
-
-            // Service whatever arrived while we were busy, coalesced to the latest. Stops the
-            // moment this generation goes stale, so an abandoned loop can never consume a
-            // _missedUpdate meant for whichever generation is current now.
-            while (IsCurrent(generation) && _missedUpdate is { } queued)
-            {
-                _missedUpdate = null;
-                await ApplyDevicesCoreAsync(queued, generation);
-            }
+            await ApplyDevicesCoreAsync(devices, generation, sequence);
+            await DrainQueuedUpdatesAsync(generation);
         }
         finally
         {
             if (IsCurrent(generation)) _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Applies whatever snapshot is queued in _missedUpdate, coalesced to the latest, before
+    /// returning control to the caller (Batch 3D). Used by both RefreshAsync and
+    /// ApplyDevicesAsync, so a snapshot that arrived while either one owned _busy is serviced by
+    /// that same operation instead of being left for some later, unrelated caller to dequeue —
+    /// the fix for the ordering gap the Batch 3C review identified. Stops the instant this
+    /// generation goes stale, so an abandoned drain can never consume a newer generation's
+    /// queue; each dequeued snapshot is still subject to ApplyDevicesCoreAsync's own sequence
+    /// check, so even a snapshot left un-drained by an exception elsewhere can never overwrite a
+    /// result that was applied after it.
+    /// </summary>
+    private async Task DrainQueuedUpdatesAsync(int generation)
+    {
+        while (IsCurrent(generation) && _missedUpdate is { } queued)
+        {
+            _missedUpdate = null;
+            await ApplyDevicesCoreAsync(queued.Devices, generation, queued.Sequence);
         }
     }
 
@@ -176,10 +237,14 @@ public partial class DashboardView : UserControl, IRefreshable
     /// generation no longer matches and every mutation below is skipped — both the entry check
     /// (the caller's own earlier await may already have gone stale) and the check after this
     /// method's own await (enrichment may still be running when the view is unloaded).
+    /// <paramref name="sequence"/> is the order this snapshot was observed in, relative to every
+    /// other snapshot this instance has ever observed (Batch 3D); if a later-observed snapshot
+    /// has already been applied, this one is discarded rather than overwriting it.
     /// </summary>
-    private async Task ApplyDevicesCoreAsync(List<AdbDevice> devices, int generation)
+    private async Task ApplyDevicesCoreAsync(List<AdbDevice> devices, int generation, int sequence)
     {
-        if (!IsCurrent(generation)) return;
+        if (!IsCurrent(generation) || sequence <= _lastAppliedSequence) return;
+        _lastAppliedSequence = sequence;
 
         if (devices.Count == 0)
         {

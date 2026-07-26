@@ -102,8 +102,10 @@ public partial class App : Application
                 var dashboard = DashboardLifecycleSelfTest.Run();
                 // Batch 3C: proves a stale async continuation is discarded, not applied.
                 var dashboardStale = DashboardStaleContinuationSelfTest.Run();
+                // Batch 3D: proves an older queued device update can never overwrite a newer one.
+                var dashboardOrdering = DashboardMissedUpdateOrderingSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
-                             && dashboard.Passed && dashboardStale.Passed;
+                             && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -113,6 +115,7 @@ public partial class App : Application
                     (lifecycle.Passed ? "OK: " : "FAIL: ") + lifecycle.Report,
                     (dashboard.Passed ? "OK: " : "FAIL: ") + dashboard.Report,
                     (dashboardStale.Passed ? "OK: " : "FAIL: ") + dashboardStale.Report,
+                    (dashboardOrdering.Passed ? "OK: " : "FAIL: ") + dashboardOrdering.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;
