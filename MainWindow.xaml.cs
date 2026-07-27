@@ -420,7 +420,7 @@ public partial class MainWindow : Window
     private void NavAbout_Click(object sender, RoutedEventArgs e)
     {
         NavAboutItem.IsChecked = false;
-        new AboutWindow { Owner = this }.ShowDialog();
+        AboutWindow.ShowOrActivate(this);
     }
 
     // ---------------- sidebar device chip ----------------
@@ -490,7 +490,7 @@ public partial class MainWindow : Window
         => new OnboardingWindow { Owner = this }.ShowDialog();
 
     private void About_Click(object sender, RoutedEventArgs e)
-        => new AboutWindow { Owner = this }.ShowDialog();
+        => AboutWindow.ShowOrActivate(this);
 
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 

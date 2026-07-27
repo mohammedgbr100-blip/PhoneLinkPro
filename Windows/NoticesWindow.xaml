@@ -1,0 +1,39 @@
+<Window x:Class="ScrcpyDeck.Windows.NoticesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="التراخيص والإشعارات القانونية" Width="720" Height="640"
+        MinWidth="480" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource Brush.App.Background}"
+        FlowDirection="RightToLeft" FontFamily="{StaticResource Font.UI}"
+        AutomationProperties.Name="التراخيص والإشعارات القانونية">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="التراخيص والإشعارات القانونية" Style="{StaticResource Text.PageTitle}"/>
+            <TextBlock x:Name="StatusText" Style="{StaticResource Text.PageSubtitle}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Style="{StaticResource Card.Surface}"
+                AutomationProperties.Name="نص الإشعارات">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <TextBox x:Name="NoticesBox" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                         TextWrapping="NoWrap" AcceptsReturn="True"
+                         FlowDirection="LeftToRight"
+                         FontFamily="{StaticResource Font.Mono}" FontSize="{StaticResource FontSize.Small}"
+                         Foreground="{StaticResource Brush.Text.Secondary}"
+                         Background="Transparent" BorderThickness="0"
+                         AutomationProperties.Name="نص إشعارات الطرف الثالث"/>
+            </ScrollViewer>
+        </Border>
+
+        <Button Grid.Row="2" x:Name="CloseBtn" Content="إغلاق" Style="{StaticResource Button.Ghost}"
+                HorizontalAlignment="Left" Margin="0,14,0,0" Click="Close_Click"
+                AutomationProperties.Name="إغلاق"/>
+    </Grid>
+</Window>

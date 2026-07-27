@@ -135,6 +135,13 @@ public partial class App : Application
             var settingsTestDir = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(), "plp_selftest_settings_" + Guid.NewGuid().ToString("N"));
             AppSettings.ResetForTests(settingsTestDir);
+
+            // Batch 4F repair: a construction-time regression in ANY window below (not just
+            // About) must never be able to reach a real Process.Start or a real clipboard write
+            // just from this smoke-construction pass — AboutSelfTest.Run() installs its own more
+            // specific seams later, but this first pass runs before it does.
+            SafeLinkLauncher.ProcessStartOverrideForTests = _ => false;
+            ClipboardService.SetTextOverrideForTests = _ => false;
             try
             {
                 // Constructed to catch XAML/resource errors, then CLOSED: the self-test must
@@ -146,6 +153,7 @@ public partial class App : Application
                     new Windows.OnboardingWindow(),
                     new Windows.AboutWindow(),
                     new Windows.PolicyWindow(),
+                    new Windows.NoticesWindow(),
                     new Windows.DeviceSetupWizardWindow(),
                     new MainWindow(),
                 };
@@ -188,10 +196,14 @@ public partial class App : Application
                 // unknown-field/unsupported-enum recovery, sensitive-field exclusion and the
                 // read-only engine-status card.
                 var settings = SettingsSelfTest.Run();
+                // Batch 4F: proves the About & Support page's truthful engine-status/consent
+                // states, fixed-link allowlist wiring, safe support-summary privacy bound,
+                // single-instance policy/notices dialogs, and side-effect-free construction.
+                var about = AboutSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
                              && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
                              && dashboardVisual.Passed && setupWizard.Passed && wireless.Passed
-                             && transfers.Passed && settings.Passed;
+                             && transfers.Passed && settings.Passed && about.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -207,6 +219,7 @@ public partial class App : Application
                     (wireless.Passed ? "OK: " : "FAIL: ") + wireless.Report,
                     (transfers.Passed ? "OK: " : "FAIL: ") + transfers.Report,
                     (settings.Passed ? "OK: " : "FAIL: ") + settings.Report,
+                    (about.Passed ? "OK: " : "FAIL: ") + about.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;
@@ -290,6 +303,30 @@ public partial class App : Application
             Dispatcher.BeginInvoke(new Action(async () =>
             {
                 var exitCode = await SettingsSnapshotToolMode.RunAsync();
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
+        // Hidden design-QA tool (Batch 4F): same placement/reasoning as the Settings snapshot
+        // mode above — renders the About &amp; Support window offscreen for a fixed set of
+        // deterministic scenarios, ahead of every real service, and never touches MainWindow's
+        // own startup path.
+        if (AboutSnapshotToolMode.IsRequested())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            var prepared = AboutSnapshotToolMode.Prepare();
+            if (prepared != AboutSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await AboutSnapshotToolMode.RunAsync();
                 Shutdown(exitCode);
             }), DispatcherPriority.ApplicationIdle);
             return;

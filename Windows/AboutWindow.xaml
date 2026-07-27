@@ -1,51 +1,221 @@
 <Window x:Class="ScrcpyDeck.Windows.AboutWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="حول البرنامج" Height="560" Width="480"
+        xmlns:services="clr-namespace:ScrcpyDeck.Services"
+        Title="حول البرنامج والدعم"
+        Width="560" Height="760" MinWidth="460" MinHeight="520"
         WindowStartupLocation="CenterOwner"
-        WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
-        Background="Transparent" FlowDirection="RightToLeft"
-        FontFamily="{StaticResource Ui}">
-    <Border Background="{StaticResource Bg}" BorderBrush="#33302A" BorderThickness="1" CornerRadius="14">
-        <Grid Margin="30,24">
-            <Button HorizontalAlignment="Left" VerticalAlignment="Top" Style="{StaticResource ChromeButton}" Click="Close_Click">
-                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"/>
-            </Button>
+        Background="{StaticResource Brush.App.Background}"
+        FlowDirection="RightToLeft" FontFamily="{StaticResource Font.UI}"
+        AutomationProperties.Name="حول البرنامج والدعم">
+    <Window.Resources>
+        <!-- page-scoped card heading style, mirrors the SettingsView precedent -->
+        <Style x:Key="Text.CardHeading" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource Font.UI}"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource Brush.Text.Primary}"/>
+        </Style>
+    </Window.Resources>
+    <Border BorderBrush="{StaticResource Brush.Border.Subtle}" BorderThickness="1">
+        <Grid Margin="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-            <StackPanel VerticalAlignment="Center">
-                <Image x:Name="Logo" Width="88" Height="88" HorizontalAlignment="Center"/>
-                <TextBlock FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,14,0,2">
-                    <Run Text="PhoneLink" Foreground="{StaticResource Text}"/><Run Text=" Pro" Foreground="{StaticResource Adb}"/>
-                </TextBlock>
-                <!-- Text set at runtime from AppVersionInfo (REL-03: no version literals in XAML) -->
-                <TextBlock x:Name="VersionText" FontSize="12" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+            <!-- ===================== header ===================== -->
+            <Grid Grid.Row="0" Margin="24,18,24,10">
+                <TextBlock Text="حول البرنامج والدعم" Style="{StaticResource Text.PageTitle}" FontSize="20" VerticalAlignment="Center"/>
+                <Button x:Name="CloseBtn" HorizontalAlignment="Left" Style="{StaticResource Button.Icon}"
+                        Click="Close_Click" ToolTip="إغلاق" AutomationProperties.Name="إغلاق">
+                    <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Close}" Width="13" Height="13"/>
+                </Button>
+            </Grid>
 
-                <Border Height="1" Background="#26231C" Margin="40,20"/>
+            <!-- ===================== body ===================== -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel MaxWidth="480" Margin="24,0,24,16">
 
-                <TextBlock Text="تصميم وتطوير" FontSize="11" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
-                <TextBlock Text="ENG. Mohammed Sattar" FontSize="17" FontWeight="Bold" Foreground="{StaticResource Adb}" HorizontalAlignment="Center" Margin="0,4,0,2"/>
-                <TextBlock Text="Network &amp; Cybersecurity Engineer" FontSize="11" FontFamily="{StaticResource Mono}" Foreground="{StaticResource Muted}" HorizontalAlignment="Center"/>
+                    <!-- ======== identity hero ======== -->
+                    <Border Style="{StaticResource Card.Surface}" Margin="0,0,0,14" AutomationProperties.Name="هوية التطبيق">
+                        <StackPanel HorizontalAlignment="Center">
+                            <Image x:Name="Logo" Width="72" Height="72" HorizontalAlignment="Center"/>
+                            <TextBlock FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,12,0,2">
+                                <Run Text="PhoneLink" Foreground="{StaticResource Brush.Text.Primary}"/><Run Text=" Pro" Foreground="{StaticResource Brush.Accent.Primary}"/>
+                            </TextBlock>
+                            <!-- Text set at runtime from AppVersionInfo (REL-03: no version literals in XAML) -->
+                            <TextBlock x:Name="VersionText" FontFamily="{StaticResource Font.Mono}" FontSize="{StaticResource FontSize.Small}"
+                                       Foreground="{StaticResource Brush.Text.Muted}" HorizontalAlignment="Center" FlowDirection="LeftToRight"/>
+                            <TextBlock Text="أداة عرض شاشة أندرويد ونقل الملفات والتحكم بالجهاز محلياً من الحاسوب."
+                                       Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" TextAlignment="Center"
+                                       HorizontalAlignment="Center" MaxWidth="360" Margin="0,10,0,0"/>
 
-                <!-- social -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
-                    <Button Style="{StaticResource GhostButton}" Content="Instagram" Margin="4,0" Tag="https://www.instagram.com/m_s_73kg/" Click="Link_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Content="TikTok" Margin="4,0" Tag="https://www.tiktok.com/@mohammed_sattar" Click="Link_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Content="Telegram" Margin="4,0" Tag="https://t.me/m_s_73kg" Click="Link_Click"/>
+                            <Border Style="{StaticResource Divider.Horizontal}" Margin="20,16"/>
+
+                            <TextBlock Text="تصميم وتطوير" Style="{StaticResource Text.Caption}" HorizontalAlignment="Center"/>
+                            <TextBlock Text="ENG. Mohammed Sattar Jabr" FontSize="15.5" FontWeight="Bold"
+                                       Foreground="{StaticResource Brush.Accent.Primary}" HorizontalAlignment="Center" Margin="0,3,0,0"/>
+
+                            <TextBlock x:Name="CopyrightText" FontSize="{StaticResource FontSize.Small}"
+                                       Foreground="{StaticResource Brush.Text.Muted}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ======== local engine status (read-only) ======== -->
+                    <Border Style="{StaticResource Card.Surface}" Margin="0,0,0,14" AutomationProperties.Name="حالة محرّك البرنامج">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Shield}"
+                                      Width="18" Height="18" Stroke="{StaticResource Brush.Accent.Primary}"/>
+                                <TextBlock Text="حالة محرّك البرنامج" Style="{StaticResource Text.CardHeading}" Margin="8,0,0,0"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8" AutomationProperties.Name="حالة أدوات المحرّك">
+                                <Ellipse x:Name="ToolsStatusDot" Style="{StaticResource Indicator.Dot}" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="ToolsStatusText" Style="{StaticResource Text.Body}" Margin="10,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8" AutomationProperties.Name="حالة التحقق من سلامة الملفات">
+                                <Ellipse x:Name="IntegrityStatusDot" Style="{StaticResource Indicator.Dot}" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="IntegrityStatusText" Style="{StaticResource Text.Body}" Margin="10,0,0,0"/>
+                            </StackPanel>
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock x:Name="EngineVersionLabelText" Text="{x:Static services:EngineManifest.FormatVersionLabelArabic}" Style="{StaticResource Text.Caption}"/>
+                                    <TextBlock x:Name="EngineVersionText" Style="{StaticResource Text.Mono}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="معمارية العملية" Style="{StaticResource Text.Caption}"/>
+                                    <TextBlock x:Name="ArchitectureText" Style="{StaticResource Text.Mono}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ======== developer & support ======== -->
+                    <Border Style="{StaticResource Card.Surface}" Margin="0,0,0,14" AutomationProperties.Name="التواصل مع المطوّر">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Info}"
+                                      Width="18" Height="18" Stroke="{StaticResource Brush.Accent.Primary}"/>
+                                <TextBlock Text="التواصل مع المطوّر" Style="{StaticResource Text.CardHeading}" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <TextBlock Text="كل زر أدناه يفتح تطبيقاً أو موقعاً خارجياً على جهازك — لا يُرسل أي شيء من داخل البرنامج."
+                                       Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                            <UniformGrid Columns="2" Rows="2">
+                                <Button x:Name="EmailBtn" Style="{StaticResource Button.Ghost}" Margin="0,0,6,8"
+                                        Click="Email_Click" Content="البريد الإلكتروني"
+                                        AutomationProperties.Name="التواصل عبر البريد الإلكتروني"
+                                        AutomationProperties.HelpText="يفتح تطبيق البريد الافتراضي لمراسلة mohammedgbr5@gmail.com"
+                                        ToolTip="mohammedgbr5@gmail.com — يفتح تطبيق البريد الخارجي"/>
+                                <Button x:Name="TelegramBtn" Style="{StaticResource Button.Ghost}" Margin="6,0,0,8"
+                                        Click="Telegram_Click" Content="Telegram — @m_s_73kg"
+                                        AutomationProperties.Name="التواصل عبر Telegram"
+                                        AutomationProperties.HelpText="يفتح https://t.me/m_s_73kg في المتصفح أو تطبيق Telegram"
+                                        ToolTip="t.me/m_s_73kg — يفتح تطبيقاً خارجياً"/>
+                                <Button x:Name="InstagramBtn" Style="{StaticResource Button.Ghost}" Margin="0,0,6,0"
+                                        Click="Instagram_Click" Content="Instagram — @m_s_73kg"
+                                        AutomationProperties.Name="متابعة على Instagram"
+                                        AutomationProperties.HelpText="يفتح https://www.instagram.com/m_s_73kg/ في المتصفح"
+                                        ToolTip="instagram.com/m_s_73kg — يفتح تطبيقاً خارجياً"/>
+                                <Button x:Name="TikTokBtn" Style="{StaticResource Button.Ghost}" Margin="6,0,0,0"
+                                        Click="TikTok_Click" Content="TikTok — @mohammed_sattar"
+                                        AutomationProperties.Name="متابعة على TikTok"
+                                        AutomationProperties.HelpText="يفتح https://www.tiktok.com/@mohammed_sattar في المتصفح"
+                                        ToolTip="tiktok.com/@mohammed_sattar — يفتح تطبيقاً خارجياً"/>
+                            </UniformGrid>
+                            <TextBlock x:Name="LinkFailedText" Visibility="Collapsed" Margin="0,10,0,0"
+                                       Foreground="{StaticResource Brush.State.Danger}" TextWrapping="Wrap"
+                                       Text="تعذّر فتح هذا الرابط. تحقق من وجود تطبيق افتراضي مناسب على جهازك."/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ======== privacy & legal (read-only) ======== -->
+                    <Border Style="{StaticResource Card.Surface}" Margin="0,0,0,14" AutomationProperties.Name="الخصوصية والقانون">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Shield}"
+                                      Width="18" Height="18" Stroke="{StaticResource Brush.Accent.Primary}"/>
+                                <TextBlock Text="الخصوصية والقانون" Style="{StaticResource Text.CardHeading}" Margin="8,0,0,0"/>
+                            </StackPanel>
+
+                            <TextBlock x:Name="PolicyVersionText" Style="{StaticResource Text.Body}" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="ConsentStatusText" Style="{StaticResource Text.Secondary}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                            <TextBlock Text="لا تتضمّن هذه الصفحة أرقام الأجهزة التسلسلية، ولا مسارات نقل الملفات، ولا مخرجات adb الخام — هذه المعلومة هنا للعرض فقط ولا يمكن قبول أو سحب الموافقة منها."
+                                       Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                            <!-- Stacked full-width (repair batch §9): a side-by-side horizontal
+                                 StackPanel let the longer Arabic label overflow and clip at every
+                                 dialog width. Each button now stretches to the card's own width
+                                 (the StackPanel default), so the full label always fits. -->
+                            <StackPanel>
+                                <Button x:Name="PolicyBtn" Content="عرض نص سياسة الخصوصية الكامل" Style="{StaticResource Button.Ghost}"
+                                        HorizontalContentAlignment="Center"
+                                        Click="Policy_Click" AutomationProperties.Name="عرض نص سياسة الخصوصية الكامل"
+                                        AutomationProperties.HelpText="يفتح نافذة قراءة فقط لنص سياسة الخصوصية الحالي؛ لا يغيّر حالة الموافقة."/>
+                                <Button x:Name="NoticesBtn" Content="التراخيص والإشعارات القانونية" Style="{StaticResource Button.Ghost}"
+                                        HorizontalContentAlignment="Center" Margin="0,8,0,0"
+                                        Click="Notices_Click" AutomationProperties.Name="التراخيص والإشعارات القانونية"
+                                        AutomationProperties.HelpText="يفتح نافذة قراءة فقط لإشعارات مكوّنات الطرف الثالث المتاحة فعلياً."/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ======== safe support summary ======== -->
+                    <Border Style="{StaticResource Card.Surface}" Margin="0,0,0,14" AutomationProperties.Name="ملخص دعم آمن">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <Path Style="{StaticResource Shell.Icon}" Data="{StaticResource Icon.Folder}"
+                                      Width="18" Height="18" Stroke="{StaticResource Brush.Accent.Primary}"/>
+                                <TextBlock Text="ملخص دعم آمن" Style="{StaticResource Text.CardHeading}" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <TextBlock Text="نسخة نصية قصيرة وآمنة يمكن مشاركتها مع الدعم — لا تتضمّن اسم المستخدم، ولا مسارات محلية، ولا رقماً تسلسلياً، ولا عنوان شبكة."
+                                       Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <Border Background="{StaticResource Brush.Surface.Inset}" BorderBrush="{StaticResource Brush.Border.Subtle}"
+                                    BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="10" Margin="0,0,0,10">
+                                <TextBox x:Name="SummaryPreviewBox" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                                         TextWrapping="Wrap" FlowDirection="LeftToRight"
+                                         FontFamily="{StaticResource Font.Mono}" FontSize="{StaticResource FontSize.Small}"
+                                         Foreground="{StaticResource Brush.Text.Secondary}" Background="Transparent" BorderThickness="0"
+                                         MaxHeight="140" AutomationProperties.Name="معاينة ملخص الدعم الآمن"/>
+                            </Border>
+                            <Button x:Name="CopySummaryBtn" Content="نسخ الملخص" Style="{StaticResource Button.Ghost}"
+                                    HorizontalAlignment="Left" Click="CopySummary_Click"
+                                    AutomationProperties.Name="نسخ ملخص الدعم الآمن إلى الحافظة"/>
+                            <TextBlock x:Name="CopyStatusText" Margin="0,8,0,0" TextWrapping="Wrap"
+                                       Style="{StaticResource Text.Secondary}" AutomationProperties.LiveSetting="Polite"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ======== advanced diagnostics (existing sanitized ZIP export) ======== -->
+                    <Border Style="{StaticResource Card.Surface}" Margin="0,0,0,4" AutomationProperties.Name="دعم متقدم">
+                        <StackPanel>
+                            <TextBlock Text="دعم متقدم" Style="{StaticResource Text.CardHeading}" Margin="0,0,0,8"/>
+                            <TextBlock Text="حزمة تشخيص كاملة (ZIP) للمستخدمين المتقدمين: تحتوي سجلات منقّاة وملخصاً تقنياً موسّعاً، وأرقام الأجهزة التسلسلية بصيغة مقنّعة فقط."
+                                       Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <Button x:Name="ExportDiagnosticsBtn" Style="{StaticResource Button.Ghost}"
+                                    Content="تصدير حزمة التشخيص الكاملة" HorizontalAlignment="Left" Click="ExportDiagnostics_Click"
+                                    AutomationProperties.Name="تصدير حزمة التشخيص الكاملة"
+                                    AutomationProperties.HelpText="ينشئ ملف ZIP آمناً للمشاركة مع الدعم — بدون أرقام تسلسلية كاملة أو ملفات شخصية."/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
+            </ScrollViewer>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,16,0,0">
-                    <Button Style="{StaticResource GhostButton}" Content="عرض سياسة الخصوصية" Margin="4,0" Click="Policy_Click"/>
-                    <Button Style="{StaticResource GhostButton}" Content="إشعارات الطرف الثالث" Margin="4,0" Click="Notices_Click"/>
-                </StackPanel>
-
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,0">
-                    <Button x:Name="ExportDiagnosticsBtn" Style="{StaticResource GhostButton}"
-                            Content="تصدير ملف التشخيص" Margin="4,0" Click="ExportDiagnostics_Click"
-                            ToolTip="ينشئ ملف ZIP آمناً للمشاركة مع الدعم — بدون أرقام تسلسلية كاملة أو ملفات شخصية"/>
-                </StackPanel>
-
-                <TextBlock Text="© 2026 ENG. Mohammed Sattar — جميع الحقوق محفوظة" FontSize="11" Foreground="#5A5A62" HorizontalAlignment="Center" Margin="0,22,0,0"/>
-            </StackPanel>
+            <!-- ===================== footer ===================== -->
+            <Border Grid.Row="2" Style="{StaticResource Divider.Horizontal}" VerticalAlignment="Top"/>
+            <Border Grid.Row="2" Padding="24,14">
+                <Button Content="إغلاق" Style="{StaticResource Button.Ghost}" HorizontalAlignment="Left" Click="Close_Click"
+                        AutomationProperties.Name="إغلاق نافذة حول البرنامج"/>
+            </Border>
         </Grid>
     </Border>
 </Window>

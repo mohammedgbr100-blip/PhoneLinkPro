@@ -43,6 +43,15 @@ internal static class EngineManifest
     /// <summary>Manifest format version (logged as the "integrity manifest version").</summary>
     public const int Version = 1;
 
+    /// <summary>
+    /// The one truthful Arabic label for <see cref="Version"/> (Batch 4F repair). This number is
+    /// the MANIFEST-FORMAT version — it is not scrcpy's own version, and no runtime source exists
+    /// that proves it as a bundled-engine "package" or "release" version. Every UI surface and the
+    /// safe support summary must display <see cref="Version"/> under exactly this label so the
+    /// claim stays consistent and cannot silently drift into an engine/scrcpy-version claim.
+    /// </summary>
+    public const string FormatVersionLabelArabic = "إصدار صيغة بيان المحرّك";
+
     public const string Header = "PLP-ENGINE-MANIFEST 1";
 
     /// <summary>The only directory manifest entries may point into, relative to the app base.</summary>

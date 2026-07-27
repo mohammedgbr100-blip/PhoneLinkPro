@@ -38,6 +38,16 @@ internal static class SettingsStore
     internal static string CurrentConsentVersion => PolicyText.Version;
 
     /// <summary>
+    /// How many times <see cref="Save"/> has actually executed (repair batch §4): a direct,
+    /// unambiguous proof that a code path never wrote settings, independent of file mtime/hash
+    /// checks which could theoretically be inconclusive if content happened to round-trip
+    /// identically.
+    /// </summary>
+    internal static int SaveCallCountForTests => Volatile.Read(ref _saveCallCount);
+    private static int _saveCallCount;
+    internal static void ResetSaveCallCountForTests() => Volatile.Write(ref _saveCallCount, 0);
+
+    /// <summary>
     /// Serializes every Load/Save against this file so concurrent callers (a UI setter racing
     /// the Settings page's own draft save) can never interleave a partial read with a partial
     /// write. Reentrant on the same thread, so Load calling into this from inside a Save is safe.
@@ -79,6 +89,7 @@ internal static class SettingsStore
     /// </summary>
     internal static bool Save(string dir, string filePath, Data data)
     {
+        Interlocked.Increment(ref _saveCallCount);
         lock (FileGate)
         {
             string? tempPath = null;
