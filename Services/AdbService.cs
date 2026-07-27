@@ -21,6 +21,23 @@ public static class AdbService
         => IntegrityGate = EngineIntegrityVerifier.VerifyAsync;
 
     /// <summary>
+    /// Test-only seam at the exact boundary where the real bridge process would be launched —
+    /// where <see cref="Adb"/> would otherwise call <see cref="ProcessRunner.RunAsync(string, IReadOnlyList{string}, int, CancellationToken)"/>.
+    /// Deliberately placed here, never above <see cref="PushAsync"/>/<see cref="PullAsync"/>: a
+    /// direct test of those methods still exercises the full production call chain
+    /// (PushAsync/PullAsync → AdbForDevice → Adb → integrity gate → this boundary) — including
+    /// argument construction, the "-s" serial prefix and the integrity check — without ever
+    /// starting adb.exe. The override receives the exact same arguments, timeout and
+    /// <see cref="CancellationToken"/> the real <see cref="ProcessRunner.RunAsync(string, IReadOnlyList{string}, int, CancellationToken)"/>
+    /// call would have received. Null (the production default) means "use the real runner."
+    /// </summary>
+    internal static Func<string, IReadOnlyList<string>, int, CancellationToken, Task<ProcessResult>>?
+        ProcessRunOverrideForTests;
+
+    /// <summary>Restores the production process-run boundary (test hook).</summary>
+    internal static void ResetProcessRunOverrideForTests() => ProcessRunOverrideForTests = null;
+
+    /// <summary>
     /// Result for a call refused by the integrity gate. StartFailed (not InvalidInput): the
     /// tool genuinely could not be started — validation semantics are untouched. The safe
     /// diagnostic goes to FailureDetail; no hash and no absolute path is ever carried.
@@ -35,22 +52,25 @@ public static class AdbService
     private static string IntegrityDiagnostic(EngineIntegrityResult integrity)
         => ($"engine integrity: {integrity.Status} {integrity.AffectedPath}").TrimEnd();
 
-    private static async Task<ProcessResult> Adb(IReadOnlyList<string> args, int timeout = 20000)
+    private static async Task<ProcessResult> Adb(IReadOnlyList<string> args, int timeout = 20000, CancellationToken ct = default)
     {
+        // The integrity gate itself is never cancelled by a caller's token — it is a fixed,
+        // fast, local check, not part of the potentially-long transfer the caller may abandon.
         var integrity = await IntegrityGate(CancellationToken.None);
         if (!integrity.IsValid) return BlockedByIntegrity(integrity);
 
-        return await ProcessRunner.RunAsync(ToolLocator.AdbPath, args, timeout);
+        var run = ProcessRunOverrideForTests ?? ProcessRunner.RunAsync;
+        return await run(ToolLocator.AdbPath, args, timeout, ct);
     }
 
     /// <summary>Runs a per-device command, validating the serial before launching anything.</summary>
     private static Task<ProcessResult> AdbForDevice(
-        string serial, IReadOnlyList<string> args, int timeout = 20000)
+        string serial, IReadOnlyList<string> args, int timeout = 20000, CancellationToken ct = default)
     {
         if (!AdbInput.TryValidateSerial(serial, out var error))
             return Task.FromResult(ProcessResult.Invalid(error));
 
-        return Adb(WithSerialArgs(serial, args), timeout);
+        return Adb(WithSerialArgs(serial, args), timeout, ct);
     }
 
     // ---------------- argument construction (pure, testable) ----------------
@@ -481,20 +501,23 @@ public static class AdbService
 
     // ---------------- File transfer ----------------
 
-    public static Task<ProcessResult> PushAsync(string serial, string local, string remote)
+    /// <summary>Bounded ceiling for one push/pull attempt — generous for a large file, never unbounded.</summary>
+    internal const int TransferTimeoutMs = 300000;
+
+    public static Task<ProcessResult> PushAsync(string serial, string local, string remote, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
             return Task.FromResult(ProcessResult.Invalid("المسار غير صالح."));
 
-        return AdbForDevice(serial, PushArgs(local, remote), 300000);
+        return AdbForDevice(serial, PushArgs(local, remote), TransferTimeoutMs, ct);
     }
 
-    public static Task<ProcessResult> PullAsync(string serial, string remote, string local)
+    public static Task<ProcessResult> PullAsync(string serial, string remote, string local, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(local) || string.IsNullOrWhiteSpace(remote))
             return Task.FromResult(ProcessResult.Invalid("المسار غير صالح."));
 
-        return AdbForDevice(serial, PullArgs(remote, local), 300000);
+        return AdbForDevice(serial, PullArgs(remote, local), TransferTimeoutMs, ct);
     }
 
     // ---------------- helpers ----------------

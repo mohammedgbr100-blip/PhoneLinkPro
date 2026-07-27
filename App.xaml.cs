@@ -167,9 +167,17 @@ public partial class App : Application
                 // single-flight Pair/Connect guards, stale-completion-after-unload safety,
                 // pairing-code hygiene and DeviceWatcher subscription lifecycle.
                 var wireless = WirelessSelfTest.Run();
+                // Batch 4D: proves the guided file-transfers page's truthful state model (exit-
+                // code-aware push/pull classification, negative-before-positive evidence, no raw
+                // adb output or full local path ever reaching the UI), device targeting/selection
+                // policy, single-flight Send/Receive/Verify gating, sequential batch + partial-
+                // failure reporting, cancellation semantics and DeviceWatcher subscription
+                // lifecycle.
+                var transfers = TransfersSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
                              && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
-                             && dashboardVisual.Passed && setupWizard.Passed && wireless.Passed;
+                             && dashboardVisual.Passed && setupWizard.Passed && wireless.Passed
+                             && transfers.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -183,6 +191,7 @@ public partial class App : Application
                     (dashboardVisual.Passed ? "OK: " : "FAIL: ") + dashboardVisual.Report,
                     (setupWizard.Passed ? "OK: " : "FAIL: ") + setupWizard.Report,
                     (wireless.Passed ? "OK: " : "FAIL: ") + wireless.Report,
+                    (transfers.Passed ? "OK: " : "FAIL: ") + transfers.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;
@@ -214,6 +223,30 @@ public partial class App : Application
             Dispatcher.BeginInvoke(new Action(async () =>
             {
                 var exitCode = await WirelessSnapshotToolMode.RunAsync();
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
+        // Hidden design-QA tool (Batch 4D): same placement/reasoning as the Wireless snapshot
+        // mode above — renders the guided file-transfers UserControl offscreen for a fixed set
+        // of deterministic scenarios, ahead of every real service, and never touches MainWindow's
+        // own startup path.
+        if (TransfersSnapshotToolMode.IsRequested())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            var prepared = TransfersSnapshotToolMode.Prepare();
+            if (prepared != TransfersSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await TransfersSnapshotToolMode.RunAsync();
                 Shutdown(exitCode);
             }), DispatcherPriority.ApplicationIdle);
             return;

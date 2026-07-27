@@ -171,8 +171,18 @@ public sealed class DesignFoundationTests
         var code = TestPaths.ReadRepoFile("MainWindow.xaml.cs");
         foreach (var page in new[] { "Dashboard", "Mirror", "Wireless", "Launcher", "Apps", "Files" })
             Assert.Contains($"\"{page}\"", code);
-        foreach (var view in new[] { "DashboardView", "MirrorView", "WirelessView", "LauncherView", "AppsView", "FilesView" })
+        foreach (var view in new[] { "DashboardView", "MirrorView", "WirelessView", "LauncherView", "AppsView", "TransfersView" })
             Assert.Contains($"new {view}()", code);
+    }
+
+    [Fact] // second-independent-review: onboarding must never re-advertise drag-and-drop, which
+           // TransfersView intentionally never implements (file selection is a picker dialog and
+           // the remote path is always typed)
+    public void Onboarding_NeverAdvertisesDragAndDropForFileTransfer()
+    {
+        var code = TestPaths.ReadRepoFile("Windows", "OnboardingWindow.xaml.cs");
+        Assert.DoesNotContain("بالسحب والإفلات", code);
+        Assert.Contains("استخدم «نقل الملفات»", code);
     }
 
     [Fact] // RTL-first shell with explicit LTR islands for technical values

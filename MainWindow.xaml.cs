@@ -384,7 +384,7 @@ public partial class MainWindow : Window
                 "Wireless" => new WirelessView(),
                 "Launcher" => new LauncherView(),
                 "Apps" => new AppsView(),
-                "Files" => new FilesView(),
+                "Files" => new TransfersView(),
                 _ => new DashboardView()
             };
             _cache[page] = view;
