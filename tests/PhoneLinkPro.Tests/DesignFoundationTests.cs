@@ -207,7 +207,7 @@ public sealed class DesignFoundationTests
         }
         // nav items keep an accessible name + tooltip even when compact mode hides labels
         foreach (var name in new[] { "NavDashboard", "NavMirror", "NavWireless",
-                                     "NavLauncher", "NavApps", "NavFiles", "NavAboutItem", "NavSettingsItem" })
+                                     "NavLauncher", "NavApps", "NavFiles", "NavAboutItem", "NavSettings" })
         {
             var element = Regex.Match(Shell, $"x:Name=\"{name}\"[^>]*", RegexOptions.Singleline).Value;
             Assert.Contains("AutomationProperties.Name", element);

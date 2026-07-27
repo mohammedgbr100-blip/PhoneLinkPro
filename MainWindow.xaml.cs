@@ -385,6 +385,7 @@ public partial class MainWindow : Window
                 "Launcher" => new LauncherView(),
                 "Apps" => new AppsView(),
                 "Files" => new TransfersView(),
+                "Settings" => new SettingsView(),
                 _ => new DashboardView()
             };
             _cache[page] = view;

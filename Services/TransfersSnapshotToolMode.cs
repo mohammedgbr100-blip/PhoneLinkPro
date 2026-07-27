@@ -78,6 +78,11 @@ internal static class TransfersSnapshotToolMode
             return Fail($"cannot create scratch directory: {ex.GetType().Name}: {ex.Message}");
         }
 
+        // Batch 4E: TransfersView now reads AppSettings.DefaultTransferDestination on
+        // construction. Redirect it to this scratch directory so a snapshot run never reads or
+        // writes the real %AppData%\PhoneLinkPro\settings.json.
+        AppSettings.ResetForTests(_scratchDirectory);
+
         return ExitSuccess;
     }
 
@@ -138,6 +143,7 @@ internal static class TransfersSnapshotToolMode
 
             watchdog.Dispose();
             DeviceWatcher.ResetForTests();
+            AppSettings.ResetForTests(null);
             try { if (_scratchDirectory != null) Directory.Delete(_scratchDirectory, recursive: true); } catch { /* best effort */ }
         }
     }

@@ -253,11 +253,9 @@
                                           Tag="{StaticResource Icon.Info}" Content="حول البرنامج والدعم"
                                           ToolTip="حول البرنامج والدعم" AutomationProperties.Name="حول البرنامج والدعم"
                                           Click="NavAbout_Click"/>
-                            <ToggleButton x:Name="NavSettingsItem" Style="{StaticResource Nav.Action}"
-                                          Tag="{StaticResource Icon.Settings}" Content="الإعدادات"
-                                          ToolTip="الإعدادات — متاحة في تحديث قادم"
-                                          AutomationProperties.Name="الإعدادات"
-                                          IsEnabled="False"/>
+                            <RadioButton x:Name="NavSettings" Style="{StaticResource Nav.Item}" GroupName="MainNav"
+                                         Tag="{StaticResource Icon.Settings}" Content="الإعدادات" ToolTip="الإعدادات"
+                                         AutomationProperties.Name="الإعدادات" Checked="Nav_Checked"/>
                         </StackPanel>
                         </ScrollViewer>
                     </DockPanel>

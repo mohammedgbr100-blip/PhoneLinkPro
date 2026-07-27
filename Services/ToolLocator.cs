@@ -22,6 +22,11 @@ public static class ToolLocator
     public static bool AdbAvailable => File.Exists(AdbPath);
     public static bool ScrcpyAvailable => File.Exists(ScrcpyPath);
 
+    /// <summary>Test/tool-mode-only override for <see cref="MissingEngineFiles"/>, so the Batch
+    /// 4E settings snapshot can render a truthful "tools unavailable" state without deleting real
+    /// engine files from a developer's build output. Null in production.</summary>
+    internal static IReadOnlyList<string>? MissingFilesOverrideForTests;
+
     /// <summary>
     /// Files that must exist before a mirroring session can start: the engine itself, the
     /// device bridge it drives, and the device-side server payload it pushes.
@@ -29,6 +34,8 @@ public static class ToolLocator
     /// </summary>
     public static IReadOnlyList<string> MissingEngineFiles()
     {
+        if (MissingFilesOverrideForTests != null) return MissingFilesOverrideForTests;
+
         var missing = new List<string>();
         foreach (var (path, name) in new[]
                  {

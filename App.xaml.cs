@@ -127,6 +127,14 @@ public partial class App : Application
             // No shell built below may run the startup path: the self-test starts no watcher,
             // no integrity verification and no ADB, exactly as before.
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            // Batch 4E: TransfersView/SettingsView now read AppSettings on construction.
+            // Redirect it to an isolated directory for the whole self-test run so no scenario
+            // below — Transfers or Settings — ever reads or writes the real
+            // %AppData%\PhoneLinkPro\settings.json.
+            var settingsTestDir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "plp_selftest_settings_" + Guid.NewGuid().ToString("N"));
+            AppSettings.ResetForTests(settingsTestDir);
             try
             {
                 // Constructed to catch XAML/resource errors, then CLOSED: the self-test must
@@ -174,10 +182,16 @@ public partial class App : Application
                 // failure reporting, cancellation semantics and DeviceWatcher subscription
                 // lifecycle.
                 var transfers = TransfersSelfTest.Run();
+                // Batch 4E: proves the settings page's truthful draft/Save/Cancel model, atomic
+                // single-flight persistence with stale-completion immunity, reset scope (only the
+                // default transfer destination — never consent/onboarding/logs), corrupt/missing/
+                // unknown-field/unsupported-enum recovery, sensitive-field exclusion and the
+                // read-only engine-status card.
+                var settings = SettingsSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
                              && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
                              && dashboardVisual.Passed && setupWizard.Passed && wireless.Passed
-                             && transfers.Passed;
+                             && transfers.Passed && settings.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -192,6 +206,7 @@ public partial class App : Application
                     (setupWizard.Passed ? "OK: " : "FAIL: ") + setupWizard.Report,
                     (wireless.Passed ? "OK: " : "FAIL: ") + wireless.Report,
                     (transfers.Passed ? "OK: " : "FAIL: ") + transfers.Report,
+                    (settings.Passed ? "OK: " : "FAIL: ") + settings.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;
@@ -201,6 +216,11 @@ public partial class App : Application
                 System.IO.File.WriteAllText(log, "FAIL: " + ex);
                 Shutdown(1);
                 return;
+            }
+            finally
+            {
+                AppSettings.ResetForTests(null);
+                try { System.IO.Directory.Delete(settingsTestDir, recursive: true); } catch { /* best effort */ }
             }
         }
 
@@ -247,6 +267,29 @@ public partial class App : Application
             Dispatcher.BeginInvoke(new Action(async () =>
             {
                 var exitCode = await TransfersSnapshotToolMode.RunAsync();
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
+        }
+
+        // Hidden design-QA tool (Batch 4E): same placement/reasoning as the Transfers snapshot
+        // mode above — renders the settings page offscreen for a fixed set of deterministic
+        // scenarios, ahead of every real service, and never touches MainWindow's own startup path.
+        if (SettingsSnapshotToolMode.IsRequested())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            var prepared = SettingsSnapshotToolMode.Prepare();
+            if (prepared != SettingsSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await SettingsSnapshotToolMode.RunAsync();
                 Shutdown(exitCode);
             }), DispatcherPriority.ApplicationIdle);
             return;

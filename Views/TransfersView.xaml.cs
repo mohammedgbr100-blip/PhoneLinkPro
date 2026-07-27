@@ -49,7 +49,9 @@ public partial class TransfersView : UserControl, IRefreshable
     // ---------------- send state ----------------
 
     private readonly List<string> _selectedLocalFiles = new();
-    private StandardRemoteDestination _selectedDestination = StandardRemoteDestination.Download;
+    // Batch 4E: preselected from the Settings page's persisted preference, never a raw path or
+    // device identifier — just one of the five fixed, non-sensitive destination categories.
+    private StandardRemoteDestination _selectedDestination = AppSettings.DefaultTransferDestination;
     private bool _customDestinationSelected;
     private bool _sendBusy;
     private bool _sendSubmitAttempted;
@@ -374,6 +376,8 @@ public partial class TransfersView : UserControl, IRefreshable
     private void PopulateDestinationCombo()
     {
         DestinationCombo.Items.Clear();
+        var selectedIndex = 0;
+        var index = 0;
         foreach (StandardRemoteDestination dest in Enum.GetValues<StandardRemoteDestination>())
         {
             DestinationCombo.Items.Add(new ComboBoxItem
@@ -381,9 +385,11 @@ public partial class TransfersView : UserControl, IRefreshable
                 Content = TransferOperations.StandardDestinationLabels[dest],
                 Tag = dest,
             });
+            if (dest == _selectedDestination) selectedIndex = index;
+            index++;
         }
         DestinationCombo.Items.Add(new ComboBoxItem { Content = "مسار مخصّص…", Tag = null });
-        DestinationCombo.SelectedIndex = 0;
+        DestinationCombo.SelectedIndex = selectedIndex;
     }
 
     private void Destination_Changed(object sender, SelectionChangedEventArgs e)

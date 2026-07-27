@@ -12,6 +12,8 @@ namespace PhoneLinkPro.Tests;
 ///   <item><description><see cref="ScrcpyDeck.Services.ScrcpyService"/> and
 ///   <see cref="ScrcpyDeck.Services.AppLifecycle"/> — a shared session registry and a
 ///   one-shot shutdown latch.</description></item>
+///   <item><description><see cref="ScrcpyDeck.Services.AppSettings"/> (Batch 4E) — its lazily-
+///   loaded in-memory snapshot and <c>DirOverrideForTests</c> redirection.</description></item>
 /// </list>
 ///
 /// <para>xUnit runs test CLASSES in parallel by default, so classes touching either static
