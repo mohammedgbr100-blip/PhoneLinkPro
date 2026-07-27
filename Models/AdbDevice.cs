@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ScrcpyDeck.Services;
 
 namespace ScrcpyDeck.Models;
 
@@ -20,8 +21,14 @@ public class AdbDevice : INotifyPropertyChanged
         set { _detailsLoaded = value; OnChanged(nameof(DetailsLoaded)); }
     }
 
-    /// <summary>True when the serial looks like an IP:port (wireless).</summary>
-    public bool IsWireless => Serial.Contains(':') && Serial.Contains('.');
+    /// <summary>
+    /// True when the serial is a genuine wireless "host:port" endpoint — IPv4 or bracketed
+    /// IPv6. Batch 4C M3 repair: the previous <c>Serial.Contains(':') &amp;&amp; Serial.Contains('.')</c>
+    /// heuristic missed every bracketed IPv6 endpoint (no dot ever appears in one), silently
+    /// mislabeling it as a USB device. <see cref="AdbInput.LooksLikeWirelessEndpoint"/> is the
+    /// one shared, pure endpoint parser both this and the wireless-pairing page rely on.
+    /// </summary>
+    public bool IsWireless => AdbInput.LooksLikeWirelessEndpoint(Serial);
 
     public bool IsAuthorized => State == "device";
 

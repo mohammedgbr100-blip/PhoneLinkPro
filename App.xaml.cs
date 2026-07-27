@@ -162,9 +162,14 @@ public partial class App : Application
                 // truthfully, masks serials, gates Finish correctly and cleans up its
                 // DeviceWatcher subscription.
                 var setupWizard = DeviceSetupWizardSelfTest.Run();
+                // Batch 4C: proves the guided wireless-pairing page's truthful state model
+                // (pair/connect success never claims "connected" without reconciliation),
+                // single-flight Pair/Connect guards, stale-completion-after-unload safety,
+                // pairing-code hygiene and DeviceWatcher subscription lifecycle.
+                var wireless = WirelessSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
                              && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
-                             && dashboardVisual.Passed && setupWizard.Passed;
+                             && dashboardVisual.Passed && setupWizard.Passed && wireless.Passed;
 
                 System.IO.File.WriteAllText(log, string.Join(Environment.NewLine, new[]
                 {
@@ -177,6 +182,7 @@ public partial class App : Application
                     (dashboardOrdering.Passed ? "OK: " : "FAIL: ") + dashboardOrdering.Report,
                     (dashboardVisual.Passed ? "OK: " : "FAIL: ") + dashboardVisual.Report,
                     (setupWizard.Passed ? "OK: " : "FAIL: ") + setupWizard.Report,
+                    (wireless.Passed ? "OK: " : "FAIL: ") + wireless.Report,
                 }));
                 Shutdown(passed ? 0 : 1);
                 return;
@@ -187,6 +193,30 @@ public partial class App : Application
                 Shutdown(1);
                 return;
             }
+        }
+
+        // Hidden design-QA tool (Batch 4C): same placement/reasoning as the Dashboard/setup-
+        // wizard snapshot modes above — renders the wireless-pairing UserControl offscreen for
+        // a fixed set of deterministic scenarios, ahead of every real service, and never touches
+        // MainWindow's own startup path.
+        if (WirelessSnapshotToolMode.IsRequested())
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
+
+            var prepared = WirelessSnapshotToolMode.Prepare();
+            if (prepared != WirelessSnapshotToolMode.ExitSuccess)
+            {
+                Shutdown(prepared);
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                var exitCode = await WirelessSnapshotToolMode.RunAsync();
+                Shutdown(exitCode);
+            }), DispatcherPriority.ApplicationIdle);
+            return;
         }
 
         // Single instance per user session (P3-02). A second launch wakes the first

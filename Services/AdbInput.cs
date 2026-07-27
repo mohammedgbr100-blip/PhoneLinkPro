@@ -227,6 +227,27 @@ public static class AdbInput
         return TryValidatePort(port, out error);
     }
 
+    /// <summary>
+    /// True when <paramref name="serial"/> is a genuine "host:port" wireless adb endpoint — an
+    /// IPv4 endpoint (<c>192.168.1.42:5555</c>) or a bracketed IPv6 endpoint
+    /// (<c>[2001:db8::42]:5555</c>) — never a bare address without a port, a USB serial, or an
+    /// emulator id such as <c>emulator-5554</c>.
+    /// <para>
+    /// Batch 4C M3 repair: reuses <see cref="TryValidateEndpoint"/> (the one shared endpoint
+    /// parser) rather than a second, competing string heuristic. <see cref="TryValidateEndpoint"/>
+    /// also accepts a bare address with no port at all, which a real adb wireless serial never
+    /// is — that case is excluded here by inspecting the normalized shape: a bare IPv4 address
+    /// carries no colon at all, and a bare IPv6 address normalizes to "[addr]" (ending in ']'),
+    /// so requiring "contains ':' and does not end with ']'" is exactly "a port was present".
+    /// </para>
+    /// </summary>
+    public static bool LooksLikeWirelessEndpoint(string? serial)
+    {
+        if (!TryValidateEndpoint(serial, out var normalized, out _)) return false;
+        if (normalized.EndsWith(']')) return false;   // bracketed IPv6, no port
+        return normalized.Contains(':');              // "ip:port" or "[ipv6]:port"; bare IPv4 has no colon
+    }
+
     // ---------------------------------------------------------------- pairing code
 
     /// <summary>

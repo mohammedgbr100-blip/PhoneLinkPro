@@ -396,6 +396,23 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Batch 4C wireless-page transition: navigates to the Dashboard and applies an already-
+    /// authorized device selection to it, reusing the exact
+    /// <see cref="Windows.DeviceSetupWizardWindow.SetupWizardResult"/> record and
+    /// <c>DashboardView.ApplySetupResult</c> mechanism the setup wizard's own Finish already
+    /// established (M4) — no second, competing device-transition path. Navigating first
+    /// guarantees the Dashboard instance exists in <see cref="_cache"/>; ApplySetupResult's own
+    /// sequence-number guard then wins over whatever refresh that navigation's OnShown may have
+    /// just started, exactly as it already does for Help_Click.
+    /// </summary>
+    internal void NavigateToDashboard(Windows.DeviceSetupWizardWindow.SetupWizardResult result)
+    {
+        SelectNav("Dashboard");
+        if (_cache.TryGetValue("Dashboard", out var view) && view is Views.DashboardView dashboard)
+            dashboard.ApplySetupResult(result);
+    }
+
+    /// <summary>
     /// «حول البرنامج والدعم» is a command-style navigation item: it opens the existing
     /// About window (same destination as before) and never stays selected.
     /// </summary>
