@@ -15,6 +15,15 @@
     <IsPublishable>false</IsPublishable>
     <!-- Never ship the tests: they must not appear in application publish output. -->
     <EnableDefaultPublishItems>false</EnableDefaultPublishItems>
+
+    <!-- Repair batch (independent review, M1): xUnit analyzer diagnostics (xUnit1xxx/2xxx) must
+         actually fail the build, not just print as warnings a green exit code buries. This is a
+         structural project-level gate — every local build, IDE build, `dotnet test`, and
+         release.ps1 invocation of this project all go through the same MSBuild pipeline, so
+         there is exactly one place this is enforced, not one per caller. No NoWarn, no
+         suppression, no analyzer downgrade: a clean tree (today's state) builds exactly as
+         before; only a reintroduced diagnostic starts failing the build. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <!-- UseWPF projects do not get System.IO among the implicit usings. -->

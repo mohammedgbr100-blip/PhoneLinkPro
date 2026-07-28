@@ -190,6 +190,6 @@ public sealed class GlobalExceptionPolicyTests : IDisposable
         Assert.Contains("operation=page:Files", logs);
         Assert.DoesNotContain(@"C:\Users\testuser", logs);     // profile path masked
         Assert.DoesNotContain("R58M12ABCDE", logs);         // serial masked
-        Assert.Single(AppDiagnostics.RecentFailures.Where(f => f.Category == "IOException"));
+        Assert.Single(AppDiagnostics.RecentFailures, f => f.Category == "IOException");
     }
 }

@@ -6,6 +6,34 @@ namespace ScrcpyDeck;
 
 public partial class App : Application
 {
+    /// <summary>
+    /// Repair batch (independent review): which automated mode, if any, this process is
+    /// running as — classified once, immediately after <see cref="MaintenanceMode"/> handling,
+    /// before the first <see cref="Log"/> call. <see cref="AutomatedMode.None"/> for a normal
+    /// interactive launch. Held as an instance field (not a local) so <see cref="OnExit"/> can
+    /// keep log isolation installed through <see cref="AppLifecycle.Shutdown"/> and the base
+    /// WPF shutdown path, rather than relying on any single method's own local scope.
+    /// </summary>
+    private AutomatedMode _automatedMode = AutomatedMode.None;
+
+    /// <summary>The isolated temporary log root installed for this process; null for a normal
+    /// interactive launch.</summary>
+    private string? _automatedLogDir;
+
+    /// <summary>Log.DirOverride's value before automated-mode isolation was installed (always
+    /// null in practice — nothing sets it earlier — but captured rather than assumed).</summary>
+    private string? _previousLogDirOverride;
+
+    /// <summary>
+    /// True once <see cref="InstallLogIsolation"/> has installed a temporary Log.DirOverride for
+    /// this process. Tracked independently of <see cref="_automatedMode"/> (which stays
+    /// <see cref="AutomatedMode.None"/> for a conflicting-modes run — there is no single
+    /// resolved mode to name) so <see cref="OnExit"/> still knows to restore/clean up even on
+    /// that fail-closed path, where AppLifecycle.Shutdown's own "Shutdown: begin/complete"
+    /// logging still needs somewhere isolated to go.
+    /// </summary>
+    private bool _logIsolationInstalled;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -18,6 +46,37 @@ public partial class App : Application
             return;
         }
 
+        // Repair batch (independent review, B1/M1 in the original Batch 5A review — now fixed
+        // for EVERY hidden automated mode, not only PLP_SELFTEST): classification happens here,
+        // immediately after MaintenanceMode and before the very first Log.* call below, so no
+        // automated process — self-test or any snapshot/tool mode — can ever have its startup
+        // line (or anything logged during its run, or its own AppLifecycle.Shutdown/OnExit
+        // logging) reach the real %AppData%\PhoneLinkPro\logs directory. A single explicit
+        // known-mode allowlist (AutomatedModeClassifier) replaces the eight independent
+        // environment-variable checks this method used to scatter across itself; conflicting
+        // signals (e.g. PLP_SELFTEST=1 together with PLP_TOOL_MODE=about-snapshot) fail closed
+        // before touching any log, real or isolated.
+        var classification = AutomatedModeClassifier.Classify(Environment.GetEnvironmentVariable);
+        if (classification.Conflict)
+        {
+            // Fail closed: never guess which mode "wins". Isolation is still installed (tagged
+            // "conflict") before Shutdown(2) below, because Shutdown() synchronously triggers
+            // OnExit -> AppLifecycle.Shutdown(), which logs its own "Shutdown: begin/complete" —
+            // that still needs somewhere other than the real profile to land. The visible
+            // diagnostic goes to the same kind of temp file every other hidden tool mode uses.
+            InstallLogIsolation("conflict");
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "plp_automated_mode_conflict.txt"),
+                "FAIL: conflicting automated-mode environment variables: " +
+                string.Join(", ", classification.DetectedSignals));
+            Shutdown(2);
+            return;
+        }
+
+        _automatedMode = classification.Mode;
+        if (_automatedMode != AutomatedMode.None)
+            InstallLogIsolation(_automatedMode.ToString());
+
         Log.Info($"PhoneLink Pro starting (v{AppVersionInfo.ProductVersion})");
         DispatcherUnhandledException += OnUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainException;
@@ -26,8 +85,9 @@ public partial class App : Application
         // Hidden build tool: verify or regenerate the engine integrity manifest, then exit.
         // Used by the Release publish gate and update-engine-manifest.bat; never runs for
         // end users (the variable is not set outside the build).
-        if (IntegrityToolMode.TryRun(out var toolExitCode))
+        if (_automatedMode == AutomatedMode.IntegrityTool)
         {
+            IntegrityToolMode.TryRun(out var toolExitCode);
             Shutdown(toolExitCode);
             return;
         }
@@ -38,7 +98,7 @@ public partial class App : Application
         // or the device watcher, never claims engine-service ownership, and never disturbs a
         // running normal instance. Activates ONLY on the exact value; see
         // ShellSnapshotToolMode for the validation and watchdog contract.
-        if (ShellSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.ShellSnapshot)
         {
             // The capture closes the shell when it is done. Under the default
             // OnLastWindowClose that would shut the app down with code 0 BEFORE the real
@@ -70,7 +130,7 @@ public partial class App : Application
         // PLP_SELFTEST below); SuppressStartupForHarness makes its Loaded handler a no-op, so
         // it never reaches consent/integrity/engine startup — this tool mode never touches it
         // beyond that.
-        if (DashboardSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.DashboardSnapshot)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
@@ -93,7 +153,7 @@ public partial class App : Application
         // Hidden design-QA tool (Batch 4B): same placement/reasoning as the Dashboard snapshot
         // mode above — renders the device-setup wizard offscreen for a fixed set of scenarios,
         // ahead of every real service, and never touches MainWindow's own startup path.
-        if (DeviceSetupWizardSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.SetupWizardSnapshot)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
@@ -118,9 +178,24 @@ public partial class App : Application
         // inheritance, so XAML alone cannot prove a control paints the right colour), then
         // exit. Bypasses the single-instance gate deliberately: it starts no watcher and no
         // ADB, so a developer's open app must not fail the build tooling.
-        if (Environment.GetEnvironmentVariable("PLP_SELFTEST") == "1")
+        if (_automatedMode == AutomatedMode.SelfTest)
         {
             var log = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "plp_selftest.txt");
+
+            // Fail closed: if the isolation installed above is somehow not in effect — the
+            // override slipped, or a future refactor moved this block ahead of it — abort
+            // before constructing a single window or running a single self-test, rather than
+            // ever risk a write landing in the real user log directory. The diagnostic below
+            // goes to the temp-file the harness always uses, never Log.*.
+            if (_automatedLogDir == null || Log.DirOverride != _automatedLogDir)
+            {
+                System.IO.File.WriteAllText(log,
+                    "FAIL: PLP_SELFTEST log isolation was not installed before startup; aborting " +
+                    "before touching the real profile.");
+                Shutdown(1);
+                return;
+            }
+
             // The assertions below open and close windows; the default OnLastWindowClose
             // would end the run at the first teardown.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -171,6 +246,10 @@ public partial class App : Application
                 var dashboardStale = DashboardStaleContinuationSelfTest.Run();
                 // Batch 3D: proves an older queued device update can never overwrite a newer one.
                 var dashboardOrdering = DashboardMissedUpdateOrderingSelfTest.Run();
+                // Batch 5A: repeats the two previously-flaky ordering scenarios (C and E) many
+                // times with the same deterministic causal synchronization, as a stability gate
+                // against a regression to guessed dispatcher-pump counts.
+                var dashboardOrderingStress = DashboardMissedUpdateOrderingSelfTest.RunOrderingStressGate();
                 // Batch 4A: proves the Dashboard 2.0 visual layer renders every fixture without
                 // exception and exposes the accessibility contract Phase 5 requires.
                 var dashboardVisual = DashboardVisualSelfTest.Run();
@@ -202,6 +281,7 @@ public partial class App : Application
                 var about = AboutSelfTest.Run();
                 var passed = design.Passed && fit.Passed && lifecycle.Passed
                              && dashboard.Passed && dashboardStale.Passed && dashboardOrdering.Passed
+                             && dashboardOrderingStress.Passed
                              && dashboardVisual.Passed && setupWizard.Passed && wireless.Passed
                              && transfers.Passed && settings.Passed && about.Passed;
 
@@ -214,6 +294,7 @@ public partial class App : Application
                     (dashboard.Passed ? "OK: " : "FAIL: ") + dashboard.Report,
                     (dashboardStale.Passed ? "OK: " : "FAIL: ") + dashboardStale.Report,
                     (dashboardOrdering.Passed ? "OK: " : "FAIL: ") + dashboardOrdering.Report,
+                    (dashboardOrderingStress.Passed ? "OK: " : "FAIL: ") + dashboardOrderingStress.Report,
                     (dashboardVisual.Passed ? "OK: " : "FAIL: ") + dashboardVisual.Report,
                     (setupWizard.Passed ? "OK: " : "FAIL: ") + setupWizard.Report,
                     (wireless.Passed ? "OK: " : "FAIL: ") + wireless.Report,
@@ -232,6 +313,11 @@ public partial class App : Application
             }
             finally
             {
+                // Log.DirOverride is deliberately NOT restored here: Shutdown(...) above already
+                // ran OnExit synchronously (AppLifecycle.Shutdown's own logging needs isolation
+                // to still be active when it runs), and OnExit's own finally is what restores
+                // and cleans up the automated log root — see OnExit below. Restoring it here too
+                // would race against/duplicate that single source of truth.
                 AppSettings.ResetForTests(null);
                 try { System.IO.Directory.Delete(settingsTestDir, recursive: true); } catch { /* best effort */ }
             }
@@ -241,7 +327,7 @@ public partial class App : Application
         // wizard snapshot modes above — renders the wireless-pairing UserControl offscreen for
         // a fixed set of deterministic scenarios, ahead of every real service, and never touches
         // MainWindow's own startup path.
-        if (WirelessSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.WirelessSnapshot)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
@@ -265,7 +351,7 @@ public partial class App : Application
         // mode above — renders the guided file-transfers UserControl offscreen for a fixed set
         // of deterministic scenarios, ahead of every real service, and never touches MainWindow's
         // own startup path.
-        if (TransfersSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.TransfersSnapshot)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
@@ -288,7 +374,7 @@ public partial class App : Application
         // Hidden design-QA tool (Batch 4E): same placement/reasoning as the Transfers snapshot
         // mode above — renders the settings page offscreen for a fixed set of deterministic
         // scenarios, ahead of every real service, and never touches MainWindow's own startup path.
-        if (SettingsSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.SettingsSnapshot)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
@@ -312,7 +398,7 @@ public partial class App : Application
         // mode above — renders the About &amp; Support window offscreen for a fixed set of
         // deterministic scenarios, ahead of every real service, and never touches MainWindow's
         // own startup path.
-        if (AboutSnapshotToolMode.IsRequested())
+        if (_automatedMode == AutomatedMode.AboutSnapshot)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             ScrcpyDeck.MainWindow.SuppressStartupForHarness = true;
@@ -353,9 +439,54 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // Runs once; safe even if MainWindow already triggered it.
-        AppLifecycle.Shutdown();
+        // Runs once; safe even if MainWindow already triggered it. AppLifecycle.Shutdown()'s
+        // own logging ("Shutdown: begin/complete" etc.) must still be isolated for an automated
+        // mode, so it runs FIRST, while Log.DirOverride is still the automated root installed in
+        // OnStartup — restoration happens only in the finally below, after that logging is done.
+        try
+        {
+            AppLifecycle.Shutdown();
+        }
+        finally
+        {
+            RestoreAutomatedLogIsolation();
+        }
         base.OnExit(e);
+    }
+
+    /// <summary>
+    /// Installs an isolated temporary Log.DirOverride for this process, tagged with
+    /// <paramref name="tag"/> (the automated mode's name, or "conflict") for easier diagnosis.
+    /// Captures the previous override so <see cref="RestoreAutomatedLogIsolation"/> can put it
+    /// back exactly.
+    /// </summary>
+    private void InstallLogIsolation(string tag)
+    {
+        _previousLogDirOverride = Log.DirOverride;
+        _automatedLogDir = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"plp_automated_{tag}_{Guid.NewGuid():N}");
+        Log.DirOverride = _automatedLogDir;
+        _logIsolationInstalled = true;
+    }
+
+    /// <summary>
+    /// Restores Log.DirOverride to whatever it was before OnStartup installed automated-mode
+    /// isolation, and deletes the temporary automated log root. Idempotent by design — clears
+    /// <see cref="_logIsolationInstalled"/> once done, so a second OnExit call (defensive; WPF
+    /// does not guarantee exactly-once) is a safe no-op rather than relying on
+    /// AppLifecycle.Shutdown's own one-shot guard to avoid a double restore or a double
+    /// directory-delete attempt.
+    /// </summary>
+    private void RestoreAutomatedLogIsolation()
+    {
+        if (!_logIsolationInstalled) return;
+
+        Log.DirOverride = _previousLogDirOverride;
+        if (_automatedLogDir != null)
+            try { System.IO.Directory.Delete(_automatedLogDir, recursive: true); } catch { /* best effort */ }
+
+        _logIsolationInstalled = false;
+        _automatedLogDir = null;
     }
 
     /// <summary>Brings the existing main window to the front (second-launch handoff).</summary>

@@ -9,7 +9,7 @@ namespace ScrcpyDeck.Services;
 /// ever reaches the clipboard.
 ///
 /// <para><b>Exact output contract (repair batch §7).</b> <see cref="Build"/> always returns
-/// exactly <see cref="LineCount"/> CRLF-separated lines: one fixed header, then one line per
+/// exactly <c>1 + FieldLabels.Count</c> CRLF-separated lines: one fixed header, then one line per
 /// entry in <see cref="FieldLabels"/>, in that exact order, each shaped
 /// <c>"{label}: {value}"</c>. No field is ever conditionally omitted (a missing/unavailable
 /// value renders as <c>"-"</c> instead of disappearing), so the line count and label set can

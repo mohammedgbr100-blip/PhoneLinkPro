@@ -140,11 +140,15 @@ public sealed class ShellSizingTests
         var (workWidth, workHeight) = ShellLayout.WorkAreaFor(physicalWidth, physicalHeight, scale);
         var first = ShellLayout.MeasureWindow(workWidth, workHeight);
         var second = ShellLayout.MeasureWindow(workWidth, workHeight);
-        Assert.Equal(first, second);
+        Assert.True(first.Equals(second),
+            $"{name}: repeated measurement of the same work area diverged; expected={first} actual={second}");
 
         // Re-measuring against the produced size must not flip the rail mode back and forth.
-        var mode = ShellLayout.IsCompactWidth(first.Width);
-        Assert.Equal(mode, ShellLayout.IsCompactWidth(second.Width));
+        var firstMode = ShellLayout.IsCompactWidth(first.Width);
+        var secondMode = ShellLayout.IsCompactWidth(second.Width);
+        Assert.True(firstMode == secondMode,
+            $"{name}: compact rail mode flipped between identical measurements; " +
+            $"expected compact={firstMode} (width={first.Width:F1}) actual compact={secondMode} (width={second.Width:F1})");
     }
 
     [Theory] // no reference display lands on the threshold, where a 1px jitter would flap

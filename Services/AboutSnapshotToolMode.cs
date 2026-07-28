@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -34,11 +35,34 @@ internal static class AboutSnapshotToolMode
     private const double StandardWidth = 1200;
     private const double WideWidth = 1440;
 
-    // Taller than a real desktop work area on purpose: About is a resizable DIALOG (its natural
-    // size is ~560x760, not a full shell page), so every scenario's full scrollable content —
-    // hero through the footer — is captured in one shot for truthful side-by-side QA, instead of
-    // requiring a scroll gesture the snapshot tool cannot perform.
-    private const double Height = 1500;
+    // About is a resizable DIALOG (its natural size is ~560x760, not a full shell page) whose
+    // body scrolls; every scenario's full scrollable content — hero through the advanced-
+    // diagnostics action and the footer — must be captured in one shot, since the snapshot tool
+    // cannot perform a scroll gesture. The window is kept at this one fixed, modest height for
+    // every scenario — see the remarks on <see cref="ComposeFullContentBitmap"/> for why growing
+    // the WINDOW itself is not how the full content gets captured (Windows silently caps a
+    // window's actual height at roughly the primary screen's height, even when the window is
+    // positioned entirely off-screen — independent review, B2 repair).
+    private const double WindowHeight = 760;
+
+    // Documented capture-height ceiling (independent review, B2): the composed bitmap's total
+    // height (header + full content extent + footer) is measured, never guessed — but the
+    // measurement's result still needs a ceiling, so a runaway future layout regression (content
+    // that grows without bound, ExtentHeight reporting something nonsensical) fails the capture
+    // LOUDLY instead of silently producing a many-thousand-pixel image. Today's tallest real
+    // scenario composes to well under 1600px; the ceiling below is comfortably above that with
+    // headroom for reasonable future content growth — it is not today's exact output height
+    // treated as the proof.
+    private const double MaximumCaptureHeight = 2200;
+
+    // Tolerance for the structural-completeness checks below: sub-pixel/DIP rounding from WPF's
+    // own layout pass, never a guess at content height.
+    private const double ContentTolerance = 1.0;
+
+    /// <summary>Set by <see cref="CaptureAsync"/> immediately before it returns false, so
+    /// <see cref="RunAsync"/> can report exactly which check failed instead of only "capture
+    /// failed".</summary>
+    private static string? _lastCaptureFailure;
 
     internal static bool IsRequested()
         => string.Equals(
@@ -104,10 +128,6 @@ internal static class AboutSnapshotToolMode
                 AppSettings.ResetForTests(scenarioDir);
                 Log.DirOverride = Path.Combine(scenarioDir, "logs");
 
-                if (Log.DirOverride == null)
-                    return Fail("log isolation was not established for scenario '" + scenario.Name +
-                                "' — refusing to capture, which could append to the real application log.");
-
                 ToolLocator.MissingFilesOverrideForTests = null;
                 AboutWindow.ResetForTests();
                 SafeLinkLauncher.ResetForTests();
@@ -118,8 +138,11 @@ internal static class AboutSnapshotToolMode
                 EngineIntegrityVerifier.BaseDirProvider = savedIntegrityBaseDir;
                 EngineIntegrityVerifier.ManifestTextProvider = savedIntegrityManifest;
 
+                _lastCaptureFailure = null;
                 var ok = await CaptureAsync(scenario);
-                if (!ok) return Fail($"capture failed for scenario '{scenario.Name}'");
+                if (!ok)
+                    return Fail($"capture failed for scenario '{scenario.Name}'" +
+                                 (_lastCaptureFailure != null ? $": {_lastCaptureFailure}" : ""));
                 count++;
 
                 try { Directory.Delete(scenarioDir, recursive: true); } catch { /* best effort */ }
@@ -231,7 +254,7 @@ internal static class AboutSnapshotToolMode
         var window = new AboutWindow
         {
             Width = scenario.Width,
-            Height = Height,
+            Height = WindowHeight,
             Left = OffscreenLeft,
             Top = OffscreenTop,
             WindowStartupLocation = WindowStartupLocation.Manual,
@@ -292,12 +315,41 @@ internal static class AboutSnapshotToolMode
             Settle(captureTarget);
             if (!await WaitForRenderAsync(captureTarget)) return false;
 
-            var w2 = captureTarget.ActualWidth;
-            var h2 = captureTarget.ActualHeight;
-            if (w2 < 1 || h2 < 1) return false;
+            RenderTargetBitmap bitmap;
+            if (ReferenceEquals(captureTarget, window))
+            {
+                if (!TryComposeFullContentBitmap(window, out var composed, out var failure))
+                {
+                    _lastCaptureFailure = failure;
+                    return false;
+                }
+                bitmap = composed!;
 
-            var bitmap = new RenderTargetBitmap((int)w2, (int)h2, 96, 96, PixelFormats.Pbgra32);
-            bitmap.Render(captureTarget);
+                // Independent post-capture proof: verify the ACTUALLY PRODUCED bitmap's height
+                // against the expected full-content height, computed fresh here rather than
+                // trusted from whichever path produced `bitmap`. This is deliberately NOT inside
+                // TryComposeFullContentBitmap — it exists so that even a future regression which
+                // bypasses composition entirely (reverting to a simple, small, clipped capture of
+                // `window` itself) still fails here instead of silently succeeding.
+                if (!CapturedBitmapHeightMatchesExpectedForTests(window, bitmap, out var heightFailure))
+                {
+                    _lastCaptureFailure = heightFailure;
+                    return false;
+                }
+            }
+            else
+            {
+                // Child dialogs (Policy/Notices) have no BodyScroll of their own and are small
+                // enough that the window-height ceiling GrowToFitContent used to work around
+                // never applies to them; their own natural, already-correct sizing is captured
+                // directly, exactly as before.
+                var w2 = captureTarget.ActualWidth;
+                var h2 = captureTarget.ActualHeight;
+                if (w2 < 1 || h2 < 1) return false;
+
+                bitmap = new RenderTargetBitmap((int)w2, (int)h2, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(captureTarget);
+            }
 
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
@@ -333,6 +385,176 @@ internal static class AboutSnapshotToolMode
 
         await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
         return true;
+    }
+
+    /// <summary>
+    /// Composes the About window's COMPLETE content — header, the full scrollable body extent,
+    /// and the footer — into one bitmap, without ever needing the window itself to grow tall
+    /// enough to show all of it.
+    ///
+    /// <para>
+    /// Root cause (independent review, B2): the previous design tried to make this true by
+    /// growing <c>window.Height</c> until <c>BodyScroll</c> needed no scrolling. That measures
+    /// correctly, but Windows silently caps a window's actual on-screen height at roughly the
+    /// PRIMARY MONITOR'S height — confirmed by direct measurement: on a 1440px-tall primary
+    /// display, repeated growth attempts past ~1460px left <c>window.ActualHeight</c> frozen
+    /// while <c>window.Height</c> itself kept climbing, even though the window was positioned
+    /// entirely off-screen (<see cref="OffscreenLeft"/> = -6000). No amount of settling or
+    /// retrying works around a hard OS ceiling; any content taller than roughly the primary
+    /// screen's height could never be captured this way, on any machine with a shorter screen
+    /// than the content.
+    /// </para>
+    ///
+    /// <para>
+    /// The fix sidesteps the window entirely: <c>BodyScroll.Content</c> (the StackPanel holding
+    /// every card) is measured and arranged at its own full natural height regardless of the
+    /// ScrollViewer's viewport — that is exactly what makes <c>ExtentHeight</c> a real number in
+    /// the first place. Rendering that content FrameworkElement directly via its own
+    /// <see cref="RenderTargetBitmap"/> captures it at full height, unclipped, with no
+    /// dependency on window or screen size at all. The header and footer — both Grid rows OUTSIDE
+    /// the ScrollViewer, always fully visible regardless of body scrolling — are cropped from a
+    /// normal render of the (small, on-screen-height) window itself. The three pieces are then
+    /// stacked into one final bitmap: top chrome, full content, bottom chrome.
+    /// </para>
+    /// </summary>
+    private static bool TryComposeFullContentBitmap(
+        AboutWindow window, out RenderTargetBitmap? bitmap, out string? failureReason)
+    {
+        bitmap = null;
+        failureReason = null;
+
+        if (window.BodyScroll.Content is not FrameworkElement content)
+        {
+            failureReason = "BodyScroll.Content is not a FrameworkElement";
+            return false;
+        }
+
+        var scrollTop = window.BodyScroll.TransformToAncestor(window).Transform(new Point(0, 0)).Y;
+        var footerTop = scrollTop + window.BodyScroll.ActualHeight;
+        var footerHeight = window.ActualHeight - footerTop;
+        var contentHeight = content.ActualHeight;
+        var totalHeight = scrollTop + contentHeight + footerHeight;
+        var width = window.ActualWidth;
+
+        if (width < 1 || scrollTop < 0 || footerHeight < 0)
+        {
+            failureReason = $"unexpected window geometry (width={width:F1}, scrollTop={scrollTop:F1}, footerHeight={footerHeight:F1})";
+            return false;
+        }
+        if (totalHeight > MaximumCaptureHeight)
+        {
+            failureReason = $"content requires {totalHeight:F0}px, which exceeds the documented maximum " +
+                             $"capture height of {MaximumCaptureHeight:F0}px — failing rather than silently clipping";
+            return false;
+        }
+
+        // Footer completeness proof: the close button must lie inside the (small, on-screen-
+        // height) window that the footer crop below is taken from.
+        if (!ControlIsWithinWindowForTests(window.FooterCloseBtn, window, width, window.ActualHeight))
+        {
+            failureReason = "the footer close button lies outside the window bounds the footer crop is taken from";
+            return false;
+        }
+        // Content completeness proof: the advanced-diagnostics action must lie inside the
+        // content panel that is about to be rendered directly at full height.
+        if (!ControlIsWithinWindowForTests(window.ExportDiagnosticsBtn, content, content.ActualWidth, contentHeight))
+        {
+            failureReason = "ExportDiagnosticsBtn lies outside the full-height content panel";
+            return false;
+        }
+
+        const double dpi = 96;
+        var windowBitmap = new RenderTargetBitmap((int)width, (int)window.ActualHeight, dpi, dpi, PixelFormats.Pbgra32);
+        windowBitmap.Render(window);
+
+        var contentBitmap = new RenderTargetBitmap((int)width, (int)contentHeight, dpi, dpi, PixelFormats.Pbgra32);
+        contentBitmap.Render(content);
+
+        var compose = new DrawingVisual();
+        using (var dc = compose.RenderOpen())
+        {
+            if (scrollTop > 0)
+                dc.DrawImage(
+                    new CroppedBitmap(windowBitmap, new Int32Rect(0, 0, (int)width, (int)scrollTop)),
+                    new Rect(0, 0, width, scrollTop));
+
+            // AboutWindow is FlowDirection="RightToLeft". Rendering the whole Window applies
+            // WPF's own RTL mirror exactly once, at the point FlowDirection is declared — the
+            // header/footer crops above/below (taken from that normal window render) are
+            // already correctly mirrored. Rendering `content` as an independent, isolated root
+            // (its own RenderTargetBitmap, not nested under the Window's render) makes WPF
+            // apply that SAME mirror a second time relative to content's own width, so it must
+            // be counter-mirrored back here at composite time — confirmed empirically: without
+            // this, every card's text renders as a horizontal mirror image.
+            dc.PushTransform(new ScaleTransform(-1, 1, width / 2, 0));
+            dc.DrawImage(contentBitmap, new Rect(0, scrollTop, width, contentHeight));
+            dc.Pop();
+
+            if (footerHeight > 0)
+                dc.DrawImage(
+                    new CroppedBitmap(windowBitmap, new Int32Rect(0, (int)footerTop, (int)width, (int)footerHeight)),
+                    new Rect(0, scrollTop + contentHeight, width, footerHeight));
+        }
+
+        var composed = new RenderTargetBitmap((int)width, (int)totalHeight, dpi, dpi, PixelFormats.Pbgra32);
+        composed.Render(compose);
+        bitmap = composed;
+        return true;
+    }
+
+    /// <summary>
+    /// Independent proof that the FINAL bitmap actually produced for a main-window scenario is
+    /// as tall as the full content genuinely requires — computed fresh from the live window/
+    /// content, not reused from whatever <see cref="TryComposeFullContentBitmap"/> itself
+    /// calculated. Deliberately kept as a SEPARATE check (not folded into that method) so a
+    /// future change that stops calling it entirely — reverting to a simple, small, clipped
+    /// capture of the window — still fails here instead of silently succeeding.
+    /// </summary>
+    private static bool CapturedBitmapHeightMatchesExpectedForTests(
+        AboutWindow window, RenderTargetBitmap bitmap, out string? failureReason)
+    {
+        failureReason = null;
+        if (window.BodyScroll.Content is not FrameworkElement content)
+        {
+            failureReason = "BodyScroll.Content is not a FrameworkElement";
+            return false;
+        }
+
+        var scrollTop = window.BodyScroll.TransformToAncestor(window).Transform(new Point(0, 0)).Y;
+        var footerHeight = window.ActualHeight - (scrollTop + window.BodyScroll.ActualHeight);
+        var expectedHeight = scrollTop + content.ActualHeight + footerHeight;
+
+        if (Math.Abs(bitmap.PixelHeight - expectedHeight) > ContentTolerance + 1)
+        {
+            failureReason = $"captured bitmap height ({bitmap.PixelHeight}px) does not match the expected " +
+                             $"full-content height ({expectedHeight:F0}px)";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="control"/>'s full bounds lie within the rectangle
+    /// (0,0)-(<paramref name="width"/>,<paramref name="height"/>), measured relative to
+    /// <paramref name="root"/> via the real visual tree transform. Transforms BOTH diagonal
+    /// corners and takes their min/max rather than assuming "top-left plus size equals bottom-
+    /// right" — AboutWindow is FlowDirection="RightToLeft", which WPF implements as a mirror
+    /// transform (effectively ScaleX=-1) applied to the whole visual tree, so a control's local
+    /// (0,0) can transform to what is visually its top-RIGHT corner; a naive corner-plus-size
+    /// calculation silently produces nonsense bounds under that mirror.
+    /// </summary>
+    private static bool ControlIsWithinWindowForTests(
+        FrameworkElement control, Visual root, double width, double height)
+    {
+        var transform = control.TransformToAncestor(root);
+        var corner1 = transform.Transform(new Point(0, 0));
+        var corner2 = transform.Transform(new Point(control.ActualWidth, control.ActualHeight));
+        var minX = Math.Min(corner1.X, corner2.X);
+        var minY = Math.Min(corner1.Y, corner2.Y);
+        var maxX = Math.Max(corner1.X, corner2.X);
+        var maxY = Math.Max(corner1.Y, corner2.Y);
+        return minX >= -ContentTolerance && minY >= -ContentTolerance
+               && maxX <= width + ContentTolerance && maxY <= height + ContentTolerance;
     }
 
     private static void Settle(Window window)

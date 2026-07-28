@@ -56,6 +56,15 @@ Step 'Build (Release, warnings are errors)'
 dotnet build ScrcpyDeck.csproj -c Release -warnaserror --nologo -v q
 if ($LASTEXITCODE -ne 0) { Fail 'Release build failed (a compiler warning fails the release build)' }
 
+# ---------- 4b) test project: analyzer diagnostics are errors ----------
+# Independent review (M1): the test project's own <TreatWarningsAsErrors> (its .csproj) already
+# makes this true for every build of it, including the implicit build inside `dotnet test` below —
+# this explicit step exists only so a reintroduced xUnit analyzer diagnostic (xUnit1xxx/2xxx)
+# shows up here, clearly labelled, rather than buried inside the test step's own output.
+Step 'Build (test project, analyzer warnings are errors)'
+dotnet build 'tests\PhoneLinkPro.Tests\PhoneLinkPro.Tests.csproj' -c Release -warnaserror --nologo -v q
+if ($LASTEXITCODE -ne 0) { Fail 'test project build failed (an xUnit analyzer diagnostic fails the release build)' }
+
 # ---------- 5) tests: zero failed, zero skipped ----------
 Step 'Tests'
 $testOut = dotnet test 'tests\PhoneLinkPro.Tests\PhoneLinkPro.Tests.csproj' --nologo -v q
@@ -67,6 +76,64 @@ if ($summary -notmatch 'Failed:\s+0,\s+Passed:\s+(\d+),\s+Skipped:\s+0,\s+Total:
 $testsPassed = [int]$Matches[1]
 $testsTotal = [int]$Matches[2]
 Step "Tests: $testsPassed/$testsTotal passed, 0 skipped"
+
+# ---------- 5b) Release PLP_SELFTEST: the full deterministic runtime gate ----------
+# Independent review (M2): xUnit alone never constructs the real WPF Application, so it cannot
+# prove the runtime self-test suite (design/fit/lifecycle/dashboard-ordering/.../about — 1920
+# assertions total) actually passes against the Release build. This runs the already-built
+# Release exe from step 4 above as a bounded child process with ONLY PLP_SELFTEST set, and
+# requires an EXACT match on the two totals the independent review named plus the overall count —
+# not just "exit code 0" — so a suite silently shrinking (fewer assertions than before) fails the
+# release exactly as loudly as a suite silently failing.
+Step 'Release PLP_SELFTEST (deterministic runtime gate)'
+$selfTestExe = 'bin\Release\net9.0-windows\PhoneLinkPro.exe'
+if (-not (Test-Path $selfTestExe)) { Fail "Release exe not found at $selfTestExe" }
+
+$selfTestReportPath = Join-Path $env:TEMP 'plp_selftest.txt'
+if (Test-Path $selfTestReportPath) { Remove-Item $selfTestReportPath -Force }
+
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = (Resolve-Path $selfTestExe).Path
+$psi.UseShellExecute = $false
+$psi.CreateNoWindow = $true
+# Only PLP_SELFTEST for the child — inherits the rest of this script's own environment (PATH,
+# SystemRoot, etc.) exactly as ProcessStartInfo does by default, but any stray PLP_* variable
+# that happened to already be set is stripped first so it can never combine into a conflicting-
+# modes run.
+foreach ($key in @($psi.EnvironmentVariables.Keys)) {
+    if ($key -like 'PLP_*') { $psi.EnvironmentVariables.Remove($key) }
+}
+$psi.EnvironmentVariables['PLP_SELFTEST'] = '1'
+
+$selfTestProcess = [System.Diagnostics.Process]::Start($psi)
+$selfTestTimeoutMs = 120000
+if (-not $selfTestProcess.WaitForExit($selfTestTimeoutMs)) {
+    try { $selfTestProcess.Kill($true) } catch { }
+    Fail "Release PLP_SELFTEST did not exit within $($selfTestTimeoutMs / 1000)s"
+}
+# The parent script's own environment was never touched (only the child ProcessStartInfo's own
+# environment block was), so there is nothing to clean up here.
+
+$selfTestExitCode = $selfTestProcess.ExitCode
+if (-not (Test-Path $selfTestReportPath)) { Fail 'Release PLP_SELFTEST produced no report file' }
+$selfTestReport = Get-Content $selfTestReportPath -Raw
+if ($selfTestExitCode -ne 0) { Fail "Release PLP_SELFTEST exited $selfTestExitCode`n$selfTestReport" }
+
+if ($selfTestReport -notmatch 'dashboard-ordering:\s*42/42') {
+    Fail "Release PLP_SELFTEST: dashboard-ordering was not 42/42`n$selfTestReport"
+}
+if ($selfTestReport -notmatch 'dashboard-ordering-stress:\s*1100/1100') {
+    Fail "Release PLP_SELFTEST: dashboard-ordering-stress was not 1100/1100`n$selfTestReport"
+}
+
+$selfTestAssertionTotal = 0
+foreach ($line in ($selfTestReport -split "`r?`n")) {
+    if ($line -match '^(OK|FAIL):\s+[\w-]+:\s+\d+/(\d+)') { $selfTestAssertionTotal += [int]$Matches[2] }
+}
+if ($selfTestAssertionTotal -ne 1920) {
+    Fail "Release PLP_SELFTEST: total runtime assertions were $selfTestAssertionTotal, expected 1920`n$selfTestReport"
+}
+Step "Release PLP_SELFTEST: $selfTestAssertionTotal/1920 runtime assertions, ordering 42/42, stress 1100/1100"
 
 # ---------- 6) publish (runs the engine-integrity publish gate) ----------
 Step 'Publish (self-contained win-x64 + integrity gate)'

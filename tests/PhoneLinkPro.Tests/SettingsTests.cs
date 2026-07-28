@@ -255,13 +255,18 @@ public sealed class SettingsTests : IDisposable
 
     [Fact] // repair batch §3 — production opens the log folder through exactly one approved
            // Process.Start call, always via the shell, never a raw command interpreter
-    public void SettingsView_OpenLogFolder_UsesOnlyTheApprovedShellExecutePattern()
+    public void Source_SettingsViewOpenLogFolder_UsesOnlyOneProcessStartCall()
     {
+        // Source-only, honestly named as such: OpenLogFolderReal has no injectable seam for the
+        // ProcessStartInfo itself (only OpenPathOverrideForTests, which REPLACES the whole call —
+        // the real Process.Start is never behaviorally exercised by any test), so this can only
+        // prove the structural shape, not the runtime PSI. A comment could satisfy a raw
+        // "UseShellExecute = true" text search without the real call being safe, so that specific
+        // check has been removed rather than kept as a false behavioral proof.
         var code = TestPaths.ReadRepoFile("Views", "SettingsView.xaml.cs");
 
         var occurrences = System.Text.RegularExpressions.Regex.Matches(code, @"Process\.Start\(").Count;
         Assert.Equal(1, occurrences);
-        Assert.Contains("UseShellExecute = true", code);
         Assert.DoesNotContain("cmd.exe", code, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("powershell", code, StringComparison.OrdinalIgnoreCase);
     }
@@ -519,5 +524,19 @@ public sealed class SettingsTests : IDisposable
         var expectedKeys = ExpectedSchemaKeys.OrderBy(k => k, StringComparer.Ordinal).ToArray();
 
         Assert.NotEqual(expectedKeys, actualKeys);
+    }
+
+    // ---------------------------------------------------------------- RTL spacer-column layout
+    // (Batch 5A supplementary guard — visual regression protection only, not full DPI proof;
+    // shares its extraction/assertion logic with AboutWindow's identical status Grid via
+    // XamlSpacerColumnGuard, since both files carry the same Auto/24/Auto shape)
+
+    [Fact] // [REGRESSION] the engine-status Grid must keep a dedicated positive-width spacer
+           // column between the two status groups, not fall back to an outer-edge margin
+    public void SettingsViewXaml_EngineStatusGrid_HasADedicatedSpacerColumn()
+    {
+        var xaml = TestPaths.ReadRepoFile("Views", "SettingsView.xaml");
+        var grid = XamlSpacerColumnGuard.ExtractStatusGrid(xaml, "EngineVersionLabelText");
+        XamlSpacerColumnGuard.AssertHasDedicatedSpacerColumn(grid);
     }
 }

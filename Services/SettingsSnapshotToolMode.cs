@@ -117,12 +117,6 @@ internal static class SettingsSnapshotToolMode
                 AppSettings.ResetForTests(scenarioDir);
                 Log.DirOverride = Path.Combine(scenarioDir, "logs"); // repair batch §7
 
-                // Profile-isolation checkpoint: fails fast, BEFORE this scenario captures
-                // anything, if the redirection above was ever removed or bypassed.
-                if (Log.DirOverride == null)
-                    return Fail("log isolation was not established for scenario '" + scenario.Name +
-                                "' — refusing to capture, which could append to the real application log.");
-
                 ToolLocator.MissingFilesOverrideForTests = null;
                 SettingsView.SaveOverrideForTests = null;
                 SettingsView.ResetOverrideForTests = null;

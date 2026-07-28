@@ -206,7 +206,7 @@ public sealed class EngineIntegrityGatingTests : IDisposable
         // Every attempt consulted the (cached-in-production) gate and reported
         // IntegrityBlocked — a result only the gate produces, proving adb never ran.
         Assert.True(gateCalls >= 1);
-        Assert.Equal(0, DeviceWatcher.LastConfirmed.Count);
+        Assert.Empty(DeviceWatcher.LastConfirmed);
     }
 
     [Fact] // after repair + Retry, polling resumes and confirms devices again

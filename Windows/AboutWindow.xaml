@@ -35,7 +35,7 @@
             </Grid>
 
             <!-- ===================== body ===================== -->
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="BodyScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel MaxWidth="480" Margin="24,0,24,16">
 
                     <!-- ======== identity hero ======== -->
@@ -213,7 +213,7 @@
             <!-- ===================== footer ===================== -->
             <Border Grid.Row="2" Style="{StaticResource Divider.Horizontal}" VerticalAlignment="Top"/>
             <Border Grid.Row="2" Padding="24,14">
-                <Button Content="إغلاق" Style="{StaticResource Button.Ghost}" HorizontalAlignment="Left" Click="Close_Click"
+                <Button x:Name="FooterCloseBtn" Content="إغلاق" Style="{StaticResource Button.Ghost}" HorizontalAlignment="Left" Click="Close_Click"
                         AutomationProperties.Name="إغلاق نافذة حول البرنامج"/>
             </Border>
         </Grid>

@@ -102,7 +102,7 @@ public sealed class DeviceSetupWizardSourceTests
     [Fact]
     public void App_WiresTheSetupWizardSnapshotToolModeExactlyOnce()
     {
-        Assert.Single(Regex.Matches(AppCode, "DeviceSetupWizardSnapshotToolMode.IsRequested\\(\\)"));
+        Assert.Single(Regex.Matches(AppCode, "_automatedMode == AutomatedMode\\.SetupWizardSnapshot"));
         Assert.Single(Regex.Matches(AppCode, "DeviceSetupWizardSnapshotToolMode.Prepare\\(\\)"));
         Assert.Single(Regex.Matches(AppCode, "DeviceSetupWizardSnapshotToolMode.RunAsync\\(\\)"));
     }

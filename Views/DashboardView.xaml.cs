@@ -107,6 +107,23 @@ public partial class DashboardView : UserControl, IRefreshable
     /// </summary>
     internal AdbDevice? HeroDeviceForTests => _heroDevice;
 
+    /// <summary>
+    /// Test-only causal signal (Batch 5A). Invoked exactly once, at the end of RefreshAsync's
+    /// or ApplyDevicesAsync's own finally block, immediately after this instance's busy gate is
+    /// released for a still-current generation — i.e. only once any drain that operation was
+    /// responsible for has already finished. Lets the missed-update-ordering self-test await the
+    /// precise moment one specific operation (and everything it coalesced/drained) has fully
+    /// settled, instead of guessing how many dispatcher pumps "should" be enough. Null in
+    /// production; invoking it never changes application behavior.
+    /// </summary>
+    internal static Action? OperationSettledForTests;
+
+    /// <summary>Test-only read of the busy gate (Batch 5A) — see <see cref="_busy"/>.</summary>
+    internal bool IsBusyForTests => _busy;
+
+    /// <summary>Test-only read of the coalesced queue (Batch 5A) — see <see cref="_missedUpdate"/>.</summary>
+    internal (List<AdbDevice> Devices, int Sequence)? MissedUpdateForTests => _missedUpdate;
+
     public DashboardView()
     {
         InitializeComponent();
@@ -227,6 +244,7 @@ public partial class DashboardView : UserControl, IRefreshable
                 _busy = false;
                 RefreshBtn.IsEnabled = true;
                 SetBusyVisual(false);
+                OperationSettledForTests?.Invoke();
             }
         }
     }
@@ -258,6 +276,7 @@ public partial class DashboardView : UserControl, IRefreshable
             {
                 _busy = false;
                 SetBusyVisual(false);
+                OperationSettledForTests?.Invoke();
             }
         }
     }

@@ -183,7 +183,13 @@ public sealed class AboutTests : IDisposable
 
     // ---------------------------------------------------------------- one approved Process.Start boundary
 
-    [Fact] // mutation-sensitive: a second Process.Start added to this file would fail this guard
+    [Fact] // mutation-sensitive: a second Process.Start added to this file would fail this guard.
+           // Whether that one call is actually safe (UseShellExecute, no Verb, no shell metachar
+           // injection) is NOT proven by source text — a comment could satisfy any such string
+           // search without the real ProcessStartInfo being safe — so that proof is left entirely
+           // to the behavioral PSI tests above (TryOpen_BuildsTheExactTruthfulProcessStartInfo and
+           // TryOpen_EveryDestination_ProducesFileNameEqualToItsOwnAllowlistedUri), which assert on
+           // the actual ProcessStartInfo instance the seam receives.
     public void SafeLinkLauncherSource_ContainsExactlyOneProcessStartCall()
     {
         var source = TestPaths.ReadRepoFile("Services", "SafeLinkLauncher.cs");
@@ -192,7 +198,6 @@ public sealed class AboutTests : IDisposable
         var codeOnly = string.Join('\n', source.Split('\n').Where(l => !l.TrimStart().StartsWith("///", StringComparison.Ordinal)));
         var count = System.Text.RegularExpressions.Regex.Matches(codeOnly, @"Process\.Start\(").Count;
         Assert.Equal(1, count);
-        Assert.Contains("UseShellExecute = true", source);
     }
 
     // ---------------------------------------------------------------- EngineManifest: truthful format-version label (repair §2)
@@ -290,19 +295,6 @@ public sealed class AboutTests : IDisposable
 
         var text = SupportSummary.Build();
         Assert.Contains($"{EngineManifest.FormatVersionLabelArabic}: v{EngineManifest.Version}", text, StringComparison.Ordinal);
-    }
-
-    [Fact] // mutation-sensitive: appending a harmless-looking extra field (UPTIME, SETTINGS STATE, …) fails this
-    public void Build_MutationProbe_AnExtraAppendedLineWouldFailTheExactContract()
-    {
-        SupportSummary.IntegrityProvider = () => null;
-        SupportSummary.MissingEngineFilesProvider = () => Array.Empty<string>();
-        SupportSummary.OsDescriptionProvider = () => "";
-
-        var text = SupportSummary.Build();
-        var mutated = text + "\r\nUPTIME: 123";
-
-        Assert.NotEqual(1 + SupportSummary.FieldLabels.Count, mutated.Split("\r\n").Length);
     }
 
     [Fact]
@@ -431,7 +423,7 @@ public sealed class AboutTests : IDisposable
     }
 
     [Fact] // the notices window must read the REAL repository file through its production default
-    public void NoticesWindow_ProductionDefault_ReadsTheActualThirdPartyNoticesFile()
+    public void Source_NoticesWindowProductionDefault_ReadsTheActualThirdPartyNoticesFile()
     {
         var real = TestPaths.ReadRepoFile("THIRD-PARTY-NOTICES.txt");
         Assert.Contains("scrcpy", real, StringComparison.OrdinalIgnoreCase);
@@ -483,6 +475,112 @@ public sealed class AboutTests : IDisposable
         var enclosingPanelOpenTag = xaml[enclosingPanelStart..enclosingPanelOpenTagEnd];
 
         Assert.DoesNotContain("Orientation=\"Horizontal\"", enclosingPanelOpenTag, StringComparison.Ordinal);
+    }
+
+    // ---------------------------------------------------------------- About snapshot: full-
+    // content capture (Batch 5A repair — the legal buttons stacking vertically in repair batch
+    // §9 grew the "privacy & legal" card enough that the fixed 1500px capture height used to
+    // clip the advanced-diagnostics action and the footer). The genuine behavioral proof is the
+    // actual PLP_TOOL_MODE=about-snapshot capture run (verified separately, images inspected by
+    // hand); what's safely checkable here is that the height is MEASURED, not guessed again, and
+    // that a bounds proof — not just "the math should work" — gates a successful capture.
+
+    [Fact] // [REGRESSION] independent review, B2: growing the WINDOW to fit content was proven
+           // to hit a hard OS ceiling (Windows silently caps a window's actual height at roughly
+           // the primary screen's height, even off-screen) — the capture must render
+           // BodyScroll's content directly instead, which has no such ceiling
+    public void AboutSnapshotToolModeSource_RendersContentDirectlyInsteadOfGrowingTheWindow()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "AboutSnapshotToolMode.cs");
+
+        Assert.Contains("TryComposeFullContentBitmap(", code, StringComparison.Ordinal);
+        Assert.Contains("contentBitmap.Render(content);", code, StringComparison.Ordinal);
+        // the approach this replaced (grow window.Height until BodyScroll needs no scrolling)
+        // must not reappear as actual code — only as historical doc-comment context
+        Assert.DoesNotContain("GrowToFitContent(window", code, StringComparison.Ordinal);
+        Assert.DoesNotContain("window.Height = ", code, StringComparison.Ordinal);
+    }
+
+    [Fact] // [REGRESSION] a successful capture must be gated on the advanced-diagnostics action
+           // AND the footer both actually lying inside their respective rendered bounds — not
+           // merely trusted from the composition arithmetic
+    public void AboutSnapshotToolModeSource_GatesCaptureOnExportDiagnosticsBtnAndFooterBounds()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "AboutSnapshotToolMode.cs");
+
+        var composeBody = ExtractMethodBody(code, "private static bool TryComposeFullContentBitmap(");
+
+        var footerCheckIdx = composeBody.IndexOf(
+            "ControlIsWithinWindowForTests(window.FooterCloseBtn, window, width, window.ActualHeight)", StringComparison.Ordinal);
+        var contentCheckIdx = composeBody.IndexOf(
+            "ControlIsWithinWindowForTests(window.ExportDiagnosticsBtn, content, content.ActualWidth, contentHeight)", StringComparison.Ordinal);
+        var bitmapIdx = composeBody.IndexOf("new RenderTargetBitmap(", StringComparison.Ordinal);
+
+        Assert.True(footerCheckIdx > 0, "the footer bounds check must still exist");
+        Assert.True(contentCheckIdx > footerCheckIdx, "the content bounds check must still exist");
+        Assert.True(bitmapIdx > contentCheckIdx,
+            "both bounds checks must run before any bitmap is captured, not after");
+    }
+
+    [Fact] // [REGRESSION] AboutWindow is FlowDirection="RightToLeft"; a bounds check that only
+           // computes "topLeft + size = bottomRight" silently produces nonsense under WPF's RTL
+           // mirror transform — proven in practice (independent review, B2 repair) when the
+           // footer close button's transformed X position exceeded the window's own width
+    public void AboutSnapshotToolModeSource_BoundsCheckIsMirrorSafe()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "AboutSnapshotToolMode.cs");
+        var body = ExtractMethodBody(code, "private static bool ControlIsWithinWindowForTests(");
+
+        Assert.Contains("Math.Min(corner1.X, corner2.X)", body, StringComparison.Ordinal);
+        Assert.Contains("Math.Max(corner1.X, corner2.X)", body, StringComparison.Ordinal);
+    }
+
+    [Fact] // [REGRESSION] rendering BodyScroll's content as an isolated root applies WPF's RTL
+           // mirror a second time (confirmed empirically: without countering it, every card's
+           // text rendered as a horizontal mirror image) — the counter-mirror must stay in place
+    public void AboutSnapshotToolModeSource_CountersTheDoubleRtlMirrorOnContentRender()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "AboutSnapshotToolMode.cs");
+        Assert.Contains("new ScaleTransform(-1, 1, width / 2, 0)", code, StringComparison.Ordinal);
+    }
+
+    [Fact] // the named ScrollViewer and footer button the composition depends on must still exist
+    public void AboutWindowXaml_HasTheNamedBodyScrollViewerAndFooterButton()
+    {
+        var xaml = TestPaths.ReadRepoFile("Windows", "AboutWindow.xaml");
+        Assert.Contains("x:Name=\"BodyScroll\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("x:Name=\"FooterCloseBtn\"", xaml, StringComparison.Ordinal);
+    }
+
+    private static string ExtractMethodBody(string code, string signaturePrefix)
+    {
+        var start = code.IndexOf(signaturePrefix, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"'{signaturePrefix}' must still exist");
+
+        var braceStart = code.IndexOf('{', start);
+        Assert.True(braceStart > start, $"'{signaturePrefix}' must be followed by a method body");
+
+        var depth = 0;
+        for (var i = braceStart; i < code.Length; i++)
+        {
+            if (code[i] == '{') depth++;
+            else if (code[i] == '}' && --depth == 0) return code[start..(i + 1)];
+        }
+
+        throw new InvalidOperationException($"'{signaturePrefix}' has no matching closing brace");
+    }
+
+    // ---------------------------------------------------------------- RTL spacer-column layout
+    // (Batch 5A supplementary guard — visual regression protection only, not full DPI proof; the
+    // dashboard/settings/about snapshot tool modes are what actually render this at real DPI)
+
+    [Fact] // [REGRESSION] the engine-status Grid must keep a dedicated positive-width spacer
+           // column between the two status groups, not fall back to an outer-edge margin
+    public void AboutWindowXaml_EngineStatusGrid_HasADedicatedSpacerColumn()
+    {
+        var xaml = TestPaths.ReadRepoFile("Windows", "AboutWindow.xaml");
+        var grid = XamlSpacerColumnGuard.ExtractStatusGrid(xaml, "EngineVersionLabelText");
+        XamlSpacerColumnGuard.AssertHasDedicatedSpacerColumn(grid);
     }
 
     // ---------------------------------------------------------------- no network / no timers

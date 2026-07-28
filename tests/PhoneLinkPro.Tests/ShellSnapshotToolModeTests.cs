@@ -174,7 +174,7 @@ public sealed class ShellSnapshotToolModeTests
     public void ToolMode_IsDispatchedBeforeAnyEngineWork()
     {
         var app = TestPaths.ReadRepoFile("App.xaml.cs");
-        var dispatch = app.IndexOf("ShellSnapshotToolMode.IsRequested", StringComparison.Ordinal);
+        var dispatch = app.IndexOf("_automatedMode == AutomatedMode.ShellSnapshot", StringComparison.Ordinal);
         var singleInstance = app.IndexOf("SingleInstance.Acquire", StringComparison.Ordinal);
         var integrity = app.IndexOf("EngineIntegrityVerifier.VerifyAsync", StringComparison.Ordinal);
 

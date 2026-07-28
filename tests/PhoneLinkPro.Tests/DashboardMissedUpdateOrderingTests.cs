@@ -118,6 +118,53 @@ public sealed class DashboardMissedUpdateOrderingTests
             "the sequence must be captured before it is stored alongside the queued devices");
     }
 
+    // ---------------------------------------------------------------- Batch 5A: deterministic
+    // synchronization contract (supplementary source guard, not the behavioral proof — see
+    // DashboardMissedUpdateOrderingSelfTest's own remarks on why Scenarios C and E previously
+    // raced a fixed dispatcher-pump count against an asynchronous TCS continuation)
+
+    [Fact] // [REGRESSION] the self-test's wait primitive must key off the real causal signal —
+           // not merely pump a fixed number of dispatcher frames and hope
+    public void Source_RunAndWaitForSettlePumpsAgainstTheOperationSettledSignalNotAFixedCount()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "DashboardMissedUpdateOrderingSelfTest.cs");
+        var body = ExtractMethodBody(code, "private static bool RunAndWaitForSettle(");
+
+        Assert.Contains("DashboardView.OperationSettledForTests = () => settled = true;", body);
+        Assert.Contains("for (var i = 0; i < maxIterations && !settled; i++)", body);
+        Assert.Contains("return settled;", body);
+    }
+
+    [Fact] // [REGRESSION] Scenario C's release of the busy-holding operation, and Scenario E's
+           // failure completion, must each be awaited through RunAndWaitForSettle — the two
+           // exact points that used to race a fixed Pump() against an async continuation
+    public void Source_ScenarioCAndEWaitForSettleAroundTheirTcsResolution()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "DashboardMissedUpdateOrderingSelfTest.cs");
+
+        var scenarioC = ExtractMethodBody(code, "private static (int Total, List<string> Failures, string Summary) ScenarioC(");
+        var scenarioE = ExtractMethodBody(code, "private static (int Total, List<string> Failures, string Summary) ScenarioE(");
+
+        Assert.Contains("var settled = RunAndWaitForSettle(holdTcs.SetResult);", scenarioC);
+        Assert.Contains("var settledFailure = RunAndWaitForSettle(", scenarioE);
+
+        // The previous, occasionally-flaky design blindly pumped a fixed number of frames right
+        // after resolving the TCS, with no regard for whether the resulting continuation had
+        // actually run yet — that helper must no longer exist at all.
+        Assert.DoesNotContain("private static void Pump()", code);
+    }
+
+    [Fact] // [REGRESSION] the deterministic ordering stress gate (Batch 5A) must actually exist
+           // and exercise both previously-flaky scenarios, not just Scenario A-F run once
+    public void Source_OrderingStressGateExistsAndCoversScenariosCAndE()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "DashboardMissedUpdateOrderingSelfTest.cs");
+        var body = ExtractMethodBody(code, "internal static Result RunOrderingStressGate(");
+
+        Assert.Contains("ScenarioC($\"stress-c-iter{i}\")", body);
+        Assert.Contains("ScenarioE($\"stress-e-iter{i}\")", body);
+    }
+
     /// <summary>
     /// Extracts one method's full body (signature through its closing brace) by counting braces
     /// from the first '{' after <paramref name="signaturePrefix"/> (mirrors the helper in

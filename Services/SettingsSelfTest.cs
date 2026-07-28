@@ -76,16 +76,6 @@ internal static class SettingsSelfTest
 
         try
         {
-            // Repair batch §7 profile-isolation checkpoint: fails fast, BEFORE any scenario below
-            // runs, if the log redirection above was ever removed or bypassed (e.g. a partial
-            // revert). Deliberately re-checked here rather than trusted silently, so a future
-            // regression is caught by this guard instead of silently writing to the real
-            // %AppData%\PhoneLinkPro\logs folder.
-            if (Log.DirOverride == null)
-                throw new InvalidOperationException(
-                    "SettingsSelfTest: log isolation was not established — refusing to run scenarios " +
-                    "that could append to the real application log.");
-
             // ---- A: XAML/resources construct without exception; every referenced element exists ----
             {
                 FreshDir("a");

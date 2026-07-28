@@ -93,7 +93,7 @@ public sealed class VersionIdentityTests
         Assert.Equal(PolicyText.Version, SettingsStore.CurrentConsentVersion);
         // If these ever coincide, someone wired the consent version to the release version;
         // a product release must never silently re-prompt (or silently NOT re-prompt) consent.
-        Assert.NotEqual(AppVersionInfo.ProductVersion, PolicyText.Version);
+        Assert.NotEqual(PolicyText.Version, AppVersionInfo.ProductVersion);
     }
 
     // ---------------------------------------------------------------- identity
