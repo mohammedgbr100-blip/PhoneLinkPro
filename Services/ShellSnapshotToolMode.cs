@@ -58,18 +58,13 @@ internal static class ShellSnapshotToolMode
     /// </summary>
     internal static bool IsActive { get; private set; }
 
-    // ---------------- activation (pure, directly testable) ----------------
-
-    /// <summary>
-    /// EXACT match only. Trimmed and case-insensitive, but nothing else activates: empty,
-    /// "0", "false", "shell", "shell-snapshots" and any other value all return false.
-    /// </summary>
-    internal static bool IsModeRequested(string? raw)
-        => string.Equals(raw?.Trim(), ModeValue, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Reads the environment and applies <see cref="IsModeRequested(string?)"/>.</summary>
-    internal static bool IsRequested()
-        => IsModeRequested(Environment.GetEnvironmentVariable(ModeVariable));
+    // ---------------- activation ----------------
+    // Repair batch 5B (§4): the former IsRequested()/IsModeRequested() dispatch pair is gone —
+    // AutomatedModeClassifier is now the ONE place that reads PLP_TOOL_MODE and matches it
+    // against ModeValue (see AutomatedModeClassifier.Classify's own Matches helper); App.OnStartup
+    // dispatches on the classifier's resolved AutomatedMode, never on a per-tool re-check of the
+    // raw environment variable. What remains here is only the mode-specific parsing still needed
+    // AFTER dispatch (output directory validation, below).
 
     /// <summary>
     /// Validates the requested output directory. Returns the normalised full path, or null

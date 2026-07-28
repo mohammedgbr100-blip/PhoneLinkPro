@@ -101,6 +101,35 @@ public static class ProcessRunner
     /// </summary>
     private static readonly TimeSpan DrainGrace = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Repair batch 5B (§7): a narrow, final safety net installed once per automated-mode or
+    /// xUnit test PROCESS (never toggled per-test) — see <see cref="App"/>'s automated-mode
+    /// dispatch and <c>TestProcessLogIsolation</c>'s module initializer, the two places that set
+    /// this. When set, a launch of EXACTLY the bundled Bridge (<see cref="ToolLocator.AdbPath"/>)
+    /// or Engine (<see cref="ToolLocator.ScrcpyPath"/>) executable is refused and counted instead
+    /// of ever reaching <see cref="Process.Start()"/> — the final choke point both
+    /// <see cref="RunAsync(ProcessCommand, CancellationToken)"/> and <see cref="Launch"/> share,
+    /// so it catches a future test/tool-mode scenario that forgets to override a higher-level
+    /// seam (<c>AdbService.ProcessRunOverrideForTests</c>, <c>DeviceWatcher.DiscoveryProvider</c>)
+    /// instead of relying only on those seams already being used correctly everywhere. Every
+    /// OTHER executable — a test's own cmd.exe/powershell.exe fixture, for instance — is
+    /// completely unaffected: this checks the exact bundled paths, never a blanket process ban.
+    /// Null/false (and therefore a no-op check) in a normal interactive launch.
+    /// </summary>
+    internal static bool BundledEngineLaunchesAreBlockedForTests { get; set; }
+
+    /// <summary>How many bundled-engine launches the safety net above has refused. Test-only.</summary>
+    internal static int BlockedBundledEngineLaunchCountForTests;
+
+    /// <summary>Resets the safety net's own counter (never the block flag itself, which is a
+    /// process-lifetime setting — see its own remarks). Test-only.</summary>
+    internal static void ResetBlockedBundledEngineLaunchCountForTests()
+        => BlockedBundledEngineLaunchCountForTests = 0;
+
+    private static bool IsBundledEnginePath(string exePath)
+        => string.Equals(exePath, ToolLocator.AdbPath, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(exePath, ToolLocator.ScrcpyPath, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Run a tool to completion and capture stdout/stderr.</summary>
     public static Task<ProcessResult> RunAsync(
         string exePath, IReadOnlyList<string> arguments, int timeoutMs = 20000,
@@ -110,6 +139,15 @@ public static class ProcessRunner
     /// <summary>Run a tool to completion and capture stdout/stderr.</summary>
     public static async Task<ProcessResult> RunAsync(ProcessCommand command, CancellationToken ct = default)
     {
+        if (BundledEngineLaunchesAreBlockedForTests && IsBundledEnginePath(command.ExecutablePath))
+        {
+            System.Threading.Interlocked.Increment(ref BlockedBundledEngineLaunchCountForTests);
+            Log.Warn("ProcessRunner: refused a bundled-engine launch under the test/automated-mode " +
+                     "safety net: " + command.LogText);
+            return new ProcessResult(ProcessOutcome.StartFailed, null, "", "",
+                FailureDetail: "blocked by the test/automated-mode bundled-engine safety net");
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = command.ExecutablePath,
@@ -235,6 +273,14 @@ public static class ProcessRunner
     public static Process? Launch(string exePath, IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string>? env = null, bool showConsole = false)
     {
+        if (BundledEngineLaunchesAreBlockedForTests && IsBundledEnginePath(exePath))
+        {
+            System.Threading.Interlocked.Increment(ref BlockedBundledEngineLaunchCountForTests);
+            Log.Warn("ProcessRunner: refused a bundled-engine Launch() under the test/automated-mode " +
+                     "safety net: " + exePath);
+            return null;
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = exePath,

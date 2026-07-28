@@ -47,13 +47,26 @@ internal enum AutomatedMode
 
 /// <summary>
 /// Result of <see cref="AutomatedModeClassifier.Classify"/>: exactly one resolved
-/// <see cref="AutomatedMode"/> (or <see cref="AutomatedMode.None"/>), or a conflict when more
-/// than one independent automated-mode signal was present in the environment at once.
+/// <see cref="AutomatedMode"/> (or <see cref="AutomatedMode.None"/>), a conflict when more than
+/// one independent automated-mode signal was present in the environment at once, or an unknown
+/// tool mode when <c>PLP_TOOL_MODE</c> carried a non-blank value that matches none of the known
+/// snapshot modes.
+///
+/// <para>
+/// Repair batch 5B: <see cref="UnknownToolMode"/> is a DISTINCT outcome from
+/// <see cref="Conflict"/> — a non-blank, unrecognized <c>PLP_TOOL_MODE</c> value (a typo, or a
+/// future value nothing has wired up yet) is not "two signals disagreeing", it is "one signal
+/// nobody understands", and conflating the two would hide which diagnostic actually applies.
+/// Both outcomes fail closed identically at the call site (<c>App.OnStartup</c>): never create
+/// the normal shell, never start the device watcher, never touch the real log or settings.
+/// </para>
 /// </summary>
 internal readonly record struct AutomatedModeResult(
     AutomatedMode Mode,
     bool Conflict,
-    IReadOnlyList<AutomatedMode> DetectedSignals);
+    bool UnknownToolMode,
+    IReadOnlyList<AutomatedMode> DetectedSignals,
+    string? UnknownToolModeValue = null);
 
 /// <summary>
 /// Classifies the current process as normal or one specific automated mode, from an explicit
@@ -73,36 +86,70 @@ internal static class AutomatedModeClassifier
     {
         var detected = new List<AutomatedMode>();
 
-        if (getEnvironmentVariable(IntegrityToolMode.ModeVariable) is { Length: > 0 })
+        // Repair batch 5B (§3): PLP_INTEGRITY_TOOL's own executor (IntegrityToolMode.TryRun)
+        // treats null/empty/whitespace-only as "not requested" via IsNullOrWhiteSpace. The
+        // classifier must agree EXACTLY, or a whitespace-only value gets classified here as
+        // IntegrityTool but then TryRun silently declines to run anything, leaving the caller's
+        // exit code at its default 0 — a whitespace value would silently "succeed" while doing
+        // nothing. Length:>0 (the previous check) did not agree with that contract; this does.
+        var integrityMode = getEnvironmentVariable(IntegrityToolMode.ModeVariable);
+        if (!string.IsNullOrWhiteSpace(integrityMode))
             detected.Add(AutomatedMode.IntegrityTool);
 
         if (getEnvironmentVariable("PLP_SELFTEST") == "1")
             detected.Add(AutomatedMode.SelfTest);
 
         // Case-insensitive equality against each exact ModeValue — matching every individual
-        // tool mode's own IsRequested() comparison (StringComparison.OrdinalIgnoreCase) exactly,
-        // rather than a switch expression's default ordinal constant-pattern matching (which
-        // would silently stop recognizing "About-Snapshot" or "ABOUT-SNAPSHOT"). Any other
-        // PLP_TOOL_MODE value (including a typo or a future, not-yet-wired mode) is deliberately
-        // NOT a known mode: unknown values must never auto-enable test behavior.
-        var toolMode = getEnvironmentVariable(ShellSnapshotToolMode.ModeVariable)?.Trim();
-        AutomatedMode? snapshotMode =
-            Matches(toolMode, ShellSnapshotToolMode.ModeValue) ? AutomatedMode.ShellSnapshot :
-            Matches(toolMode, DashboardSnapshotToolMode.ModeValue) ? AutomatedMode.DashboardSnapshot :
-            Matches(toolMode, DeviceSetupWizardSnapshotToolMode.ModeValue) ? AutomatedMode.SetupWizardSnapshot :
-            Matches(toolMode, WirelessSnapshotToolMode.ModeValue) ? AutomatedMode.WirelessSnapshot :
-            Matches(toolMode, TransfersSnapshotToolMode.ModeValue) ? AutomatedMode.TransfersSnapshot :
-            Matches(toolMode, SettingsSnapshotToolMode.ModeValue) ? AutomatedMode.SettingsSnapshot :
-            Matches(toolMode, AboutSnapshotToolMode.ModeValue) ? AutomatedMode.AboutSnapshot :
-            null;
-        if (snapshotMode is { } resolvedSnapshotMode)
-            detected.Add(resolvedSnapshotMode);
+        // tool mode's own former IsRequested() comparison (StringComparison.OrdinalIgnoreCase)
+        // exactly, rather than a switch expression's default ordinal constant-pattern matching
+        // (which would silently stop recognizing "About-Snapshot" or "ABOUT-SNAPSHOT").
+        //
+        // Repair batch 5B (§2): absent, empty, or whitespace-only PLP_TOOL_MODE (i.e. blank
+        // after Trim()) is treated as "not requested" — consistent with the PLP_INTEGRITY_TOOL
+        // contract just above, so both automated-mode variables share one blank-is-unset rule.
+        // A NON-BLANK value that matches none of the seven known modes is a different thing
+        // entirely: someone clearly intended an automated mode and got the value wrong (a typo,
+        // stale documentation, a future mode nothing has wired up yet). Silently falling through
+        // to a normal interactive launch there would start the real shell, the real device
+        // watcher and real engine integrity/adb work under what the caller believed was a bounded
+        // tool-mode run — so it is reported as UnknownToolMode instead of folding into
+        // AutomatedMode.None, and App.OnStartup fails closed on it exactly like a conflict.
+        var rawToolMode = getEnvironmentVariable(ShellSnapshotToolMode.ModeVariable);
+        var toolMode = rawToolMode?.Trim();
+        var unknownToolMode = false;
+
+        if (!string.IsNullOrEmpty(toolMode))
+        {
+            AutomatedMode? snapshotMode =
+                Matches(toolMode, ShellSnapshotToolMode.ModeValue) ? AutomatedMode.ShellSnapshot :
+                Matches(toolMode, DashboardSnapshotToolMode.ModeValue) ? AutomatedMode.DashboardSnapshot :
+                Matches(toolMode, DeviceSetupWizardSnapshotToolMode.ModeValue) ? AutomatedMode.SetupWizardSnapshot :
+                Matches(toolMode, WirelessSnapshotToolMode.ModeValue) ? AutomatedMode.WirelessSnapshot :
+                Matches(toolMode, TransfersSnapshotToolMode.ModeValue) ? AutomatedMode.TransfersSnapshot :
+                Matches(toolMode, SettingsSnapshotToolMode.ModeValue) ? AutomatedMode.SettingsSnapshot :
+                Matches(toolMode, AboutSnapshotToolMode.ModeValue) ? AutomatedMode.AboutSnapshot :
+                null;
+
+            if (snapshotMode is { } resolvedSnapshotMode)
+                detected.Add(resolvedSnapshotMode);
+            else
+                unknownToolMode = true;
+        }
+
+        // Unknown takes priority over both the normal count-based resolution AND Conflict: it is
+        // reported as its own distinct outcome (never overloaded onto Conflict, even when a known
+        // signal such as PLP_SELFTEST or PLP_INTEGRITY_TOOL is ALSO present at the same time —
+        // both combinations must still fail closed, and DetectedSignals still carries whatever
+        // known signals were also present for diagnostics).
+        if (unknownToolMode)
+            return new AutomatedModeResult(
+                AutomatedMode.None, Conflict: false, UnknownToolMode: true, detected, rawToolMode);
 
         return detected.Count switch
         {
-            0 => new AutomatedModeResult(AutomatedMode.None, Conflict: false, detected),
-            1 => new AutomatedModeResult(detected[0], Conflict: false, detected),
-            _ => new AutomatedModeResult(AutomatedMode.None, Conflict: true, detected),
+            0 => new AutomatedModeResult(AutomatedMode.None, Conflict: false, UnknownToolMode: false, detected),
+            1 => new AutomatedModeResult(detected[0], Conflict: false, UnknownToolMode: false, detected),
+            _ => new AutomatedModeResult(AutomatedMode.None, Conflict: true, UnknownToolMode: false, detected),
         };
     }
 

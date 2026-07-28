@@ -118,6 +118,40 @@ public partial class DashboardView : UserControl, IRefreshable
     /// </summary>
     internal static Action? OperationSettledForTests;
 
+    /// <summary>
+    /// Repair batch 5B (§6): the last exception a test-installed <see cref="OperationSettledForTests"/>
+    /// hook threw, captured by <see cref="SignalOperationSettledForTests"/> rather than left to
+    /// propagate. A hook is harness code, not production code — it must never be able to replace
+    /// or hide the real operation's own exception (a hook throwing INSIDE the same finally block
+    /// that used to invoke it unguarded would otherwise become the exception RefreshAsync/
+    /// ApplyDevicesAsync's Task actually faults with, silently discarding whatever the operation
+    /// itself failed with). Exposed so a harness can still observe and fail on a broken hook
+    /// instead of the failure being silently swallowed. Always null in production (the hook
+    /// itself is always null there).
+    /// </summary>
+    internal static Exception? OperationSettledHookExceptionForTests;
+
+    /// <summary>
+    /// The one call site that invokes <see cref="OperationSettledForTests"/>. Never lets the hook
+    /// throw past this point — see <see cref="OperationSettledHookExceptionForTests"/>. Internal
+    /// (not private) so xUnit can prove the null/normal/throwing contracts directly without a live
+    /// WPF Application; the two runtime scenarios that need a real DashboardView instance (busy
+    /// release and queue drain surviving a throwing hook, and the original operation exception
+    /// surviving a throwing hook) live in DashboardMissedUpdateOrderingSelfTest under PLP_SELFTEST,
+    /// exactly like every other genuine behavioral proof for this class.
+    /// </summary>
+    internal static void SignalOperationSettledForTests()
+    {
+        try
+        {
+            OperationSettledForTests?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            OperationSettledHookExceptionForTests = ex;
+        }
+    }
+
     /// <summary>Test-only read of the busy gate (Batch 5A) — see <see cref="_busy"/>.</summary>
     internal bool IsBusyForTests => _busy;
 
@@ -244,7 +278,7 @@ public partial class DashboardView : UserControl, IRefreshable
                 _busy = false;
                 RefreshBtn.IsEnabled = true;
                 SetBusyVisual(false);
-                OperationSettledForTests?.Invoke();
+                SignalOperationSettledForTests();
             }
         }
     }
@@ -276,7 +310,7 @@ public partial class DashboardView : UserControl, IRefreshable
             {
                 _busy = false;
                 SetBusyVisual(false);
-                OperationSettledForTests?.Invoke();
+                SignalOperationSettledForTests();
             }
         }
     }

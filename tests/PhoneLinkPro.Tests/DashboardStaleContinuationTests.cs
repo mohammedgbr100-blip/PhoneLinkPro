@@ -127,16 +127,18 @@ public sealed class DashboardStaleContinuationTests
         // whitespace collapsed) rather than indentation-exact, so a reformat can't falsely fail
         // this, and a guard that stopped actually wrapping the statements can't falsely pass it.
         // Batch 4A added a same-guarded SetBusyVisual(false) view-state call alongside the two
-        // original statements, and Batch 5A added a same-guarded OperationSettledForTests
-        // causal signal (a no-op in production; null there) — both still inside the same
-        // IsCurrent(generation) block as the original _busy release.
+        // original statements, and Batch 5A added a same-guarded causal test signal — repair
+        // batch 5B (§6) changed that direct `OperationSettledForTests?.Invoke()` call into
+        // SignalOperationSettledForTests(), a wrapper that never lets a throwing test hook mask
+        // the real operation's own exception — both still inside the same IsCurrent(generation)
+        // block as the original _busy release.
         var refreshBody = ExtractMethodBody(code, "private async Task RefreshAsync()");
         var refreshFinallyIdx = refreshBody.IndexOf("finally", StringComparison.Ordinal);
         Assert.True(refreshFinallyIdx >= 0, "RefreshAsync must still have a finally block");
         var refreshFinally = NormalizeStructure(refreshBody[refreshFinallyIdx..]);
         Assert.Contains(
             "if (IsCurrent(generation)) { _busy = false; RefreshBtn.IsEnabled = true; " +
-            "SetBusyVisual(false); OperationSettledForTests?.Invoke(); }",
+            "SetBusyVisual(false); SignalOperationSettledForTests(); }",
             refreshFinally);
 
         // ApplyDevicesAsync's finally: only release _busy (and, since Batch 4A, repaint the
@@ -147,7 +149,7 @@ public sealed class DashboardStaleContinuationTests
         var applyFinally = NormalizeStructure(applyBody[applyFinallyIdx..]);
         Assert.Contains(
             "if (IsCurrent(generation)) { _busy = false; SetBusyVisual(false); " +
-            "OperationSettledForTests?.Invoke(); }",
+            "SignalOperationSettledForTests(); }",
             applyFinally);
 
         // The coalescing loop stops the instant this generation goes stale.

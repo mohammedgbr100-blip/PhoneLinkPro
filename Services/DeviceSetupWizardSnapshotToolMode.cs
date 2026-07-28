@@ -39,10 +39,9 @@ internal static class DeviceSetupWizardSnapshotToolMode
     private const double NarrowWidth = 920;   // ShellLayout.PreferredMinWidth
     private const double WideWidth = 1080;
 
-    internal static bool IsRequested()
-        => string.Equals(
-            Environment.GetEnvironmentVariable(ShellSnapshotToolMode.ModeVariable)?.Trim(),
-            ModeValue, StringComparison.OrdinalIgnoreCase);
+    // Repair batch 5B (§4): the former IsRequested() dispatch is gone — AutomatedModeClassifier
+    // is the one place that reads PLP_TOOL_MODE; App.OnStartup dispatches on its resolved
+    // AutomatedMode, never on a per-tool re-check of the raw environment variable.
 
     private static string? _outputDirectory;
 

@@ -13,30 +13,13 @@ namespace PhoneLinkPro.Tests;
 public sealed class ShellSnapshotToolModeTests
 {
     // ---------------------------------------------------------------- activation
-
-    [Theory] // the EXACT value, tolerant only of surrounding whitespace and casing
-    [InlineData("shell-snapshot")]
-    [InlineData("  shell-snapshot  ")]
-    [InlineData("SHELL-SNAPSHOT")]
-    [InlineData("Shell-Snapshot")]
-    public void Activation_AcceptsOnlyTheExactMode(string value)
-        => Assert.True(ShellSnapshotToolMode.IsModeRequested(value));
-
-    [Theory] // nothing else may ever put a user's app into tool mode
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("0")]
-    [InlineData("false")]
-    [InlineData("true")]
-    [InlineData("1")]
-    [InlineData("shell")]
-    [InlineData("snapshot")]
-    [InlineData("shell-snapshots")]
-    [InlineData("shell-snapshot-extra")]
-    [InlineData("xshell-snapshot")]
-    public void Activation_RejectsEverythingElse(string? value)
-        => Assert.False(ShellSnapshotToolMode.IsModeRequested(value));
+    // Repair batch 5B (§4): ShellSnapshotToolMode.IsModeRequested()/IsRequested() were removed as
+    // dead dispatch code — AutomatedModeClassifier is now the ONE place that matches PLP_TOOL_MODE
+    // against ModeValue. That exact-match/case-insensitive/whitespace-tolerant contract is now
+    // proven directly against the classifier in AutomatedModeTests (Classify_EveryKnownSnapshotMode_
+    // IsRecognized, Classify_ToolModeValue_IsCaseInsensitive, Classify_UnknownToolModeValue_
+    // FailsClosed, Classify_WhitespaceOnlyToolModeValue_IsNotAutomated) rather than duplicated here
+    // against a since-removed per-tool predicate.
 
     // ---------------------------------------------------------------- output path
 

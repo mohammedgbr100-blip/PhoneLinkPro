@@ -44,6 +44,13 @@ internal static class TestProcessLogIsolation
         Log.DirOverride = dir;
         IsolatedLogDir = dir;
 
+        // Repair batch 5B (§7): the same structural safety net App.OnStartup installs for every
+        // automated mode, installed here for the WHOLE xUnit test process instead — so a test
+        // that forgets to override AdbService.ProcessRunOverrideForTests/DeviceWatcher.
+        // DiscoveryProvider/ScrcpyService.Launcher still cannot start the real bundled adb/scrcpy
+        // binaries. Never restored: it must stay in effect for every test in this process.
+        ProcessRunner.BundledEngineLaunchesAreBlockedForTests = true;
+
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
     }
 
@@ -69,4 +76,9 @@ public sealed class TestProcessLogIsolationTests
         Assert.NotNull(Log.DirOverride);
         Assert.DoesNotContain(realProfileRoot, Log.DirOverride!, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact] // [REGRESSION] repair batch 5B (§7): the bundled-engine safety net must be installed
+           // for the whole xUnit process, not merely mentioned in a comment
+    public void BundledEngineLaunchSafetyNet_IsInstalledForTheWholeProcess()
+        => Assert.True(ProcessRunner.BundledEngineLaunchesAreBlockedForTests);
 }

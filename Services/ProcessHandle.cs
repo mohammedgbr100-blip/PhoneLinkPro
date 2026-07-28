@@ -48,6 +48,24 @@ public sealed class SystemProcessLauncher : IProcessLauncher
 
     public IProcessHandle Start(ProcessCommand command)
     {
+        // Repair batch 5B (§7): this is the REAL choke point for the mirroring engine launch
+        // (ScrcpyService.Launcher defaults to SystemProcessLauncher.Instance) — the same safety
+        // net ProcessRunner.RunAsync enforces for adb calls, applied here too, so an automated
+        // mode or xUnit test that forgets to swap ScrcpyService.Launcher for a fake still cannot
+        // start the real bundled engine. Throwing matches this interface's own documented
+        // contract ("Throws when it cannot be started"); ScrcpyService.Launch already catches
+        // and maps any launcher exception to MirrorLaunchStatus.StartFailed.
+        if (ProcessRunner.BundledEngineLaunchesAreBlockedForTests &&
+            (string.Equals(command.ExecutablePath, ToolLocator.AdbPath, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(command.ExecutablePath, ToolLocator.ScrcpyPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            Interlocked.Increment(ref ProcessRunner.BlockedBundledEngineLaunchCountForTests);
+            Log.Warn("SystemProcessLauncher: refused a bundled-engine launch under the " +
+                     "test/automated-mode safety net: " + command.ExecutablePath);
+            throw new InvalidOperationException(
+                "blocked by the test/automated-mode bundled-engine safety net");
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = command.ExecutablePath,

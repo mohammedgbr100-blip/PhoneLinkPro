@@ -50,14 +50,85 @@ public sealed class AutomatedModeTests
         Assert.False(result.Conflict);
     }
 
-    [Fact]
-    public void Classify_UnknownToolModeValue_IsNotAutomated()
+    [Fact] // [REGRESSION] repair batch 5B (§2): a non-blank, unrecognized PLP_TOOL_MODE value
+           // must fail closed — never silently resolve to a normal interactive launch
+    public void Classify_UnknownToolModeValue_FailsClosed()
     {
         var result = AutomatedModeClassifier.Classify(
             name => name == "PLP_TOOL_MODE" ? "not-a-real-mode" : null);
 
         Assert.Equal(AutomatedMode.None, result.Mode);
         Assert.False(result.Conflict);
+        Assert.True(result.UnknownToolMode);
+        Assert.Equal("not-a-real-mode", result.UnknownToolModeValue);
+    }
+
+    [Fact] // empty PLP_TOOL_MODE is indistinguishable from absent: normal rules apply
+    public void Classify_EmptyToolModeValue_IsNotAutomated()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name == "PLP_TOOL_MODE" ? "" : null);
+
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.False(result.Conflict);
+        Assert.False(result.UnknownToolMode);
+    }
+
+    [Fact] // [REGRESSION] repair batch 5B (§2): whitespace-only PLP_TOOL_MODE is treated exactly
+           // like absent/empty — never as "unknown" — the same blank-is-unset contract
+           // PLP_INTEGRITY_TOOL already uses via IsNullOrWhiteSpace
+    public void Classify_WhitespaceOnlyToolModeValue_IsNotAutomated()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name == "PLP_TOOL_MODE" ? "   " : null);
+
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.False(result.Conflict);
+        Assert.False(result.UnknownToolMode);
+    }
+
+    [Fact] // [REGRESSION] an unknown PLP_TOOL_MODE together with PLP_SELFTEST must still fail
+           // closed as Unknown, not silently resolve to SelfTest
+    public void Classify_UnknownToolModePlusSelfTest_FailsClosedAsUnknown()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name switch
+        {
+            "PLP_SELFTEST" => "1",
+            "PLP_TOOL_MODE" => "not-a-real-mode",
+            _ => null,
+        });
+
+        Assert.True(result.UnknownToolMode);
+        Assert.False(result.Conflict);
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.Contains(AutomatedMode.SelfTest, result.DetectedSignals);
+    }
+
+    [Fact] // [REGRESSION] an unknown PLP_TOOL_MODE together with PLP_INTEGRITY_TOOL must still
+           // fail closed as Unknown, not silently resolve to IntegrityTool
+    public void Classify_UnknownToolModePlusIntegrityTool_FailsClosedAsUnknown()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name switch
+        {
+            "PLP_INTEGRITY_TOOL" => "verify",
+            "PLP_TOOL_MODE" => "not-a-real-mode",
+            _ => null,
+        });
+
+        Assert.True(result.UnknownToolMode);
+        Assert.False(result.Conflict);
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.Contains(AutomatedMode.IntegrityTool, result.DetectedSignals);
+    }
+
+    [Fact] // an unrelated, real, elsewhere-used PLP_ variable (MainWindow's own post-startup
+           // navigation selector) must never be mistaken for an automated-mode signal
+    public void Classify_PlpStartAlone_IsNotAutomated()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name == "PLP_START" ? "Devices" : null);
+
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.False(result.Conflict);
+        Assert.False(result.UnknownToolMode);
+        Assert.Empty(result.DetectedSignals);
     }
 
     [Fact]
@@ -73,6 +144,28 @@ public sealed class AutomatedModeTests
     {
         var result = AutomatedModeClassifier.Classify(name => name == "PLP_INTEGRITY_TOOL" ? "verify" : null);
         Assert.Equal(AutomatedMode.IntegrityTool, result.Mode);
+    }
+
+    [Fact] // [REGRESSION] repair batch 5B (§3): the classifier must agree EXACTLY with
+           // IntegrityToolMode.TryRun's own IsNullOrWhiteSpace("not requested") contract — a
+           // whitespace-only value must never classify as IntegrityTool (which used to let
+           // TryRun silently decline to run anything while still returning exit code 0)
+    public void Classify_WhitespaceOnlyIntegrityToolValue_IsNotAutomated()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name == "PLP_INTEGRITY_TOOL" ? "   " : null);
+
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.False(result.Conflict);
+        Assert.False(result.UnknownToolMode);
+    }
+
+    [Fact] // empty PLP_INTEGRITY_TOOL is indistinguishable from absent: normal rules apply
+    public void Classify_EmptyIntegrityToolValue_IsNotAutomated()
+    {
+        var result = AutomatedModeClassifier.Classify(name => name == "PLP_INTEGRITY_TOOL" ? "" : null);
+
+        Assert.Equal(AutomatedMode.None, result.Mode);
+        Assert.False(result.Conflict);
     }
 
     [Theory] // every known snapshot mode must classify as automated — none silently falls through
@@ -98,6 +191,15 @@ public sealed class AutomatedModeTests
         var result = AutomatedModeClassifier.Classify(
             name => name == "PLP_TOOL_MODE" ? "ABOUT-SNAPSHOT" : null);
         Assert.Equal(AutomatedMode.AboutSnapshot, result.Mode);
+    }
+
+    [Fact] // surrounding whitespace around an otherwise-known value does not defeat matching
+    public void Classify_ToolModeValue_TrimsSurroundingWhitespace()
+    {
+        var result = AutomatedModeClassifier.Classify(
+            name => name == "PLP_TOOL_MODE" ? "  shell-snapshot  " : null);
+        Assert.Equal(AutomatedMode.ShellSnapshot, result.Mode);
+        Assert.False(result.UnknownToolMode);
     }
 
     [Fact] // PLP_SELFTEST together with a snapshot tool mode is a conflict, not a precedence pick
@@ -185,6 +287,63 @@ public sealed class AutomatedModeTests
         Assert.Contains("finally", onExitBody[..restoreCall], StringComparison.Ordinal);
     }
 
+    [Fact] // [REGRESSION] repair batch 5B (§2): the unknown-tool-mode path must also install
+           // isolation before Shutdown(3) — same reasoning as the conflict path above
+    public void Source_UnknownToolModePathInstallsIsolationBeforeShuttingDown()
+    {
+        var code = TestPaths.ReadRepoFile("App.xaml.cs");
+
+        var branch = code.IndexOf("if (classification.UnknownToolMode)", StringComparison.Ordinal);
+        Assert.True(branch >= 0, "the unknown-tool-mode branch must exist");
+        var install = code.IndexOf("InstallLogIsolation(\"unknown-tool-mode\");", branch, StringComparison.Ordinal);
+        var shutdown = code.IndexOf("Shutdown(3);", branch, StringComparison.Ordinal);
+
+        Assert.True(install > branch, "the unknown-tool-mode branch must install isolation");
+        Assert.True(shutdown > install, "isolation must be installed before Shutdown(3)");
+    }
+
+    [Fact] // [REGRESSION] the unknown-tool-mode branch must be reached even when it is set
+           // alongside a known signal (PLP_SELFTEST/PLP_INTEGRITY_TOOL) — checked ahead of the
+           // resolved-mode assignment, exactly like the conflict branch
+    public void Source_UnknownToolModeBranchPrecedesResolvedModeAssignment()
+    {
+        var code = TestPaths.ReadRepoFile("App.xaml.cs");
+
+        var branch = code.IndexOf("if (classification.UnknownToolMode)", StringComparison.Ordinal);
+        var assign = code.IndexOf("_automatedMode = classification.Mode;", StringComparison.Ordinal);
+
+        Assert.True(branch >= 0 && assign > branch,
+            "the unknown-tool-mode branch must precede the resolved-mode assignment");
+    }
+
+    [Fact] // [REGRESSION] repair batch 5B (§4): AutomatedModeClassifier must remain the ONLY
+           // production place that reads PLP_TOOL_MODE — a direct per-tool re-check (the old
+           // IsRequested()/IsModeRequested() dispatch pattern this batch removed) must never
+           // reappear anywhere else in Services/, or a tool mode could activate independently of
+           // (and inconsistently with) the centralized classifier's own fail-closed/whitespace
+           // rules.
+    public void Source_OnlyTheClassifierReadsPlpToolModeAnywhereInServices()
+    {
+        var servicesDir = Path.Combine(TestPaths.RepoRoot(), "Services");
+        var offenders = new List<string>();
+
+        foreach (var file in Directory.GetFiles(servicesDir, "*.cs"))
+        {
+            if (Path.GetFileName(file) == "AutomatedMode.cs") continue;   // the one authorized reader
+
+            var code = File.ReadAllText(file);
+            if (code.Contains("GetEnvironmentVariable(ShellSnapshotToolMode.ModeVariable)", StringComparison.Ordinal) ||
+                code.Contains("GetEnvironmentVariable(\"PLP_TOOL_MODE\")", StringComparison.Ordinal))
+            {
+                offenders.Add(Path.GetFileName(file));
+            }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "PLP_TOOL_MODE must be read only by AutomatedModeClassifier; found direct reads in: " +
+            string.Join(", ", offenders));
+    }
+
     // ---------------------------------------------------------------- process-lifetime proof
     // (spawns the real built exe — the only way to prove OnExit-time shutdown logging, not just
     // startup logging, stays isolated)
@@ -211,6 +370,20 @@ public sealed class AutomatedModeTests
 
         var after = SnapshotRealLogDirectory();
         Assert.Equal(2, exitCode); // the documented conflict exit code
+        Assert.Equal(before, after);
+    }
+
+    [Fact] // [REGRESSION] repair batch 5B (§2): a real process launched with an unrecognized,
+           // non-blank PLP_TOOL_MODE must fail closed (never fall through to a normal launch —
+           // no real shell, no real device watcher, no real log write) and exit 3
+    public void RealLogDirectory_IsUnchangedWithAnUnknownToolMode()
+    {
+        var before = SnapshotRealLogDirectory();
+
+        var exitCode = RunApp(TimeSpan.FromSeconds(30), ("PLP_TOOL_MODE", "not-a-real-mode"));
+
+        var after = SnapshotRealLogDirectory();
+        Assert.Equal(3, exitCode); // the documented unknown-tool-mode exit code
         Assert.Equal(before, after);
     }
 

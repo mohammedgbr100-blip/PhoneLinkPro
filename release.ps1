@@ -26,6 +26,11 @@ Set-Location $PSScriptRoot
 function Fail([string]$msg) { Write-Host "RELEASE FAILED: $msg" -ForegroundColor Red; exit 1 }
 function Step([string]$msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
+# Repair batch 5B (§5): the exact, unique-suite report validator lives in its own file so it can
+# be dot-sourced by a lightweight PowerShell subprocess in tests too, without running any part of
+# the pipeline below.
+. (Join-Path $PSScriptRoot 'SelfTestReportValidator.ps1')
+
 # ---------- 1) repository checks ----------
 Step 'Repository checks'
 $dirty = git status --porcelain
@@ -119,21 +124,16 @@ if (-not (Test-Path $selfTestReportPath)) { Fail 'Release PLP_SELFTEST produced 
 $selfTestReport = Get-Content $selfTestReportPath -Raw
 if ($selfTestExitCode -ne 0) { Fail "Release PLP_SELFTEST exited $selfTestExitCode`n$selfTestReport" }
 
-if ($selfTestReport -notmatch 'dashboard-ordering:\s*42/42') {
-    Fail "Release PLP_SELFTEST: dashboard-ordering was not 42/42`n$selfTestReport"
+# Repair batch 5B (§5): exact, unique-suite validation - see SelfTestReportValidator.ps1. Each of
+# the 13 required suites must appear EXACTLY once with numerator == denominator == its documented
+# exact value; a duplicated suite and an omitted suite can no longer cancel out to the same total,
+# an unknown suite line is never accepted silently, and any FAIL or malformed line fails closed.
+$selfTestValidation = Test-SelfTestReport -Report $selfTestReport
+if (-not $selfTestValidation.IsValid) {
+    Fail "Release PLP_SELFTEST: $($selfTestValidation.Reason)`n$selfTestReport"
 }
-if ($selfTestReport -notmatch 'dashboard-ordering-stress:\s*1100/1100') {
-    Fail "Release PLP_SELFTEST: dashboard-ordering-stress was not 1100/1100`n$selfTestReport"
-}
-
-$selfTestAssertionTotal = 0
-foreach ($line in ($selfTestReport -split "`r?`n")) {
-    if ($line -match '^(OK|FAIL):\s+[\w-]+:\s+\d+/(\d+)') { $selfTestAssertionTotal += [int]$Matches[2] }
-}
-if ($selfTestAssertionTotal -ne 1920) {
-    Fail "Release PLP_SELFTEST: total runtime assertions were $selfTestAssertionTotal, expected 1920`n$selfTestReport"
-}
-Step "Release PLP_SELFTEST: $selfTestAssertionTotal/1920 runtime assertions, ordering 42/42, stress 1100/1100"
+$selfTestAssertionTotal = $selfTestValidation.Total
+Step "Release PLP_SELFTEST: $selfTestAssertionTotal/$selfTestAssertionTotal runtime assertions (exact, unique-suite match), ordering 55/55, stress 1100/1100"
 
 # ---------- 6) publish (runs the engine-integrity publish gate) ----------
 Step 'Publish (self-contained win-x64 + integrity gate)'

@@ -73,9 +73,35 @@ public partial class App : Application
             return;
         }
 
+        // Repair batch 5B (§2): a non-blank, unrecognized PLP_TOOL_MODE value must never fall
+        // through to a normal interactive launch — that would start the real shell, the real
+        // device watcher and real engine integrity/adb work under what the caller believed was a
+        // bounded, isolated tool-mode run. Isolation is installed and the diagnostic written
+        // BEFORE Shutdown(3) for exactly the same reason as the conflict branch above:
+        // Shutdown() synchronously triggers OnExit -> AppLifecycle.Shutdown(), whose own logging
+        // still needs somewhere isolated to land even though no single mode was resolved.
+        if (classification.UnknownToolMode)
+        {
+            InstallLogIsolation("unknown-tool-mode");
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "plp_automated_mode_unknown.txt"),
+                $"FAIL: unrecognized {ShellSnapshotToolMode.ModeVariable} value: " +
+                $"'{classification.UnknownToolModeValue}'");
+            Shutdown(3);
+            return;
+        }
+
         _automatedMode = classification.Mode;
         if (_automatedMode != AutomatedMode.None)
+        {
             InstallLogIsolation(_automatedMode.ToString());
+            // Repair batch 5B (§7): every automated mode is a bounded, non-interactive run that
+            // must never actually start the real bundled adb/scrcpy binaries — most already
+            // guarantee this per-scenario (DeviceWatcher.DiscoveryProvider overrides, etc.); this
+            // is the structural safety net underneath all of them. Never restored: the process
+            // exits at the end of this automated run either way.
+            ProcessRunner.BundledEngineLaunchesAreBlockedForTests = true;
+        }
 
         Log.Info($"PhoneLink Pro starting (v{AppVersionInfo.ProductVersion})");
         DispatcherUnhandledException += OnUnhandledException;

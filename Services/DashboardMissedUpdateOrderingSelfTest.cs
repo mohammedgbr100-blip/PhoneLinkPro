@@ -222,6 +222,108 @@ internal static class DashboardMissedUpdateOrderingSelfTest
 
                 lines.AppendLine($"  F: subscriber balance ok, normal update applied once={appliedOnce}");
             }
+
+            // ---- G: repair batch 5B (§6) — a throwing OperationSettledForTests hook must not
+            //         block busy release, and must not block a SUCCESSFUL operation's own drain
+            //         of whatever coalesced behind it. Invokes ApplyDevicesAsync directly via
+            //         reflection (bypassing RunAndWaitForSettle, which now itself fails loudly on
+            //         ANY hook exception — appropriate for every other scenario, but this one
+            //         deliberately installs a throwing hook and inspects the result). ----
+            {
+                var applyMethod = typeof(DashboardView).GetMethod(
+                    "ApplyDevicesAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+                var enrichTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                DashboardView.EnrichOverrideForTests = _ => enrichTcs.Task;
+                var view = new DashboardView();
+                Load(view);
+
+                var holder = Authorized("batch5b-hook-g-holder");
+                var holderTask = (Task)applyMethod.Invoke(view, new object[] { new List<AdbDevice> { holder } })!;
+                Expect("G: the holder operation owns the busy gate", view.IsBusyForTests);
+
+                var queued = Authorized("batch5b-hook-g-queued");
+                var queuedTask = (Task)applyMethod.Invoke(view, new object[] { new List<AdbDevice> { queued } })!;
+                Expect("G: the second update coalesced behind the busy operation instead of erroring",
+                    queuedTask.IsCompletedSuccessfully);
+                Expect("G: the coalesced update is actually queued; queued=" + Serial(view.MissedUpdateForTests),
+                    Serial(view.MissedUpdateForTests) == queued.Serial);
+
+                var hookInvoked = false;
+                DashboardView.OperationSettledForTests = () =>
+                {
+                    hookInvoked = true;
+                    throw new InvalidOperationException("batch5b-hook-g-failure");
+                };
+                DashboardView.OperationSettledHookExceptionForTests = null;
+
+                enrichTcs.SetResult();
+                var settledG = PumpUntilComplete(holderTask);
+                Expect("G: the holder operation completed despite the throwing hook (did not hang)", settledG);
+                Expect("G: the holder operation completed SUCCESSFULLY (the hook's own failure did " +
+                       "not turn a successful operation into a faulted one)",
+                    holderTask.IsCompletedSuccessfully);
+                Expect("G: the throwing hook was actually invoked and its own exception was captured, " +
+                       "not silently lost",
+                    hookInvoked && DashboardView.OperationSettledHookExceptionForTests?.Message
+                        == "batch5b-hook-g-failure");
+                Expect("G: busy was released despite the throwing hook; busy=" + view.IsBusyForTests,
+                    !view.IsBusyForTests);
+                Expect("G: the coalesced update was still drained and applied despite the throwing " +
+                       $"hook; actual={view.HeroDeviceForTests?.Serial ?? "<null>"}",
+                    ReferenceEquals(view.HeroDeviceForTests, queued));
+
+                DashboardView.OperationSettledForTests = null;
+                DashboardView.OperationSettledHookExceptionForTests = null;
+                lines.AppendLine($"  G: hook invoked={hookInvoked}, busy released, " +
+                                 $"queued update applied={ReferenceEquals(view.HeroDeviceForTests, queued)}");
+                Unload(view);
+            }
+
+            // ---- H: repair batch 5B (§6) — a throwing OperationSettledForTests hook must never
+            //         mask the real operation's OWN failure with the hook's own exception. ----
+            {
+                var applyMethod = typeof(DashboardView).GetMethod(
+                    "ApplyDevicesAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+                var enrichTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                DashboardView.EnrichOverrideForTests = _ => enrichTcs.Task;
+                var view = new DashboardView();
+                Load(view);
+
+                var failing = Authorized("batch5b-hook-h-failing");
+                var failingTask = (Task)applyMethod.Invoke(view, new object[] { new List<AdbDevice> { failing } })!;
+                Expect("H: the failing operation owns the busy gate", view.IsBusyForTests);
+
+                var operationFailure = new InvalidOperationException("batch5b-real-operation-failure");
+                var hookInvoked = false;
+                DashboardView.OperationSettledForTests = () =>
+                {
+                    hookInvoked = true;
+                    throw new InvalidOperationException("batch5b-hook-h-failure");
+                };
+                DashboardView.OperationSettledHookExceptionForTests = null;
+
+                enrichTcs.SetException(operationFailure);
+                var settledH = PumpUntilComplete(failingTask);
+                Expect("H: the operation completed despite the throwing hook (did not hang)", settledH);
+
+                var observedFault = failingTask.IsFaulted ? failingTask.Exception?.GetBaseException() : null;
+                Expect("H: the ORIGINAL operation failure propagated, not the hook's own exception; " +
+                       $"observed={observedFault?.GetType().Name ?? "<none>"}: {observedFault?.Message ?? ""}",
+                    observedFault is InvalidOperationException oe && oe.Message == operationFailure.Message);
+                Expect("H: the throwing hook was actually invoked and its own exception was captured, " +
+                       "not silently lost",
+                    hookInvoked && DashboardView.OperationSettledHookExceptionForTests?.Message
+                        == "batch5b-hook-h-failure");
+                Expect("H: busy was released despite the throwing hook; busy=" + view.IsBusyForTests,
+                    !view.IsBusyForTests);
+
+                DashboardView.OperationSettledForTests = null;
+                DashboardView.OperationSettledHookExceptionForTests = null;
+                lines.AppendLine($"  H: hook invoked={hookInvoked}, original failure preserved, busy released");
+                Unload(view);
+            }
         }
         catch (Exception ex)
         {
@@ -524,6 +626,7 @@ internal static class DashboardMissedUpdateOrderingSelfTest
         var settled = false;
         var previous = DashboardView.OperationSettledForTests;
         DashboardView.OperationSettledForTests = () => settled = true;
+        DashboardView.OperationSettledHookExceptionForTests = null;
         try
         {
             trigger();
@@ -534,11 +637,18 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                     new Action(() => frame.Continue = false));
                 Dispatcher.PushFrame(frame);
             }
+            // Repair batch 5B (§6): this harness's OWN hook never throws, so observing one here
+            // would mean something else corrupted the shared static between calls — fail loudly
+            // rather than silently ignore it.
+            if (DashboardView.OperationSettledHookExceptionForTests is { } hookEx)
+                throw new InvalidOperationException(
+                    "OperationSettledForTests hook threw unexpectedly: " + hookEx, hookEx);
             return settled;
         }
         finally
         {
             DashboardView.OperationSettledForTests = previous;
+            DashboardView.OperationSettledHookExceptionForTests = null;
         }
     }
 
@@ -549,6 +659,27 @@ internal static class DashboardMissedUpdateOrderingSelfTest
     /// abandoned/stale-generation continuation (Scenario D) — so there is nothing to wait for
     /// and RunAndWaitForSettle would just burn its whole bounded budget before giving up.
     /// </summary>
+    /// <summary>
+    /// Repair batch 5B (§6) helper: pumps the dispatcher until <paramref name="task"/> itself
+    /// completes (success or fault), bounded so a genuine hang still fails fast. Used only by
+    /// Scenarios G/H, which invoke ApplyDevicesAsync directly via reflection and need to observe
+    /// the resulting Task's own completion/fault state — RunAndWaitForSettle's own signal
+    /// (OperationSettledForTests) is deliberately NOT used here, since these two scenarios
+    /// install their own throwing hook and must not trip RunAndWaitForSettle's unrelated
+    /// "my own hook must never throw" guard.
+    /// </summary>
+    private static bool PumpUntilComplete(Task task, int maxIterations = 200)
+    {
+        for (var i = 0; i < maxIterations && !task.IsCompleted; i++)
+        {
+            var frame = new DispatcherFrame();
+            Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle,
+                new Action(() => frame.Continue = false));
+            Dispatcher.PushFrame(frame);
+        }
+        return task.IsCompleted;
+    }
+
     private static void PumpWithoutWaiting(int iterations = 6)
     {
         for (var i = 0; i < iterations; i++)

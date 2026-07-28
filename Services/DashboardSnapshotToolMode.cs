@@ -48,11 +48,9 @@ internal static class DashboardSnapshotToolMode
     private const double UltraWideWidth = 1920;   // Batch 4A M1 repair: 1920x1080-equivalent content width
     private const double Height = 820;
 
-    internal static bool IsModeRequested(string? raw)
-        => string.Equals(raw?.Trim(), ModeValue, StringComparison.OrdinalIgnoreCase);
-
-    internal static bool IsRequested()
-        => IsModeRequested(Environment.GetEnvironmentVariable(ShellSnapshotToolMode.ModeVariable));
+    // Repair batch 5B (§4): the former IsModeRequested()/IsRequested() dispatch pair is gone —
+    // AutomatedModeClassifier is the one place that reads PLP_TOOL_MODE; App.OnStartup dispatches
+    // on its resolved AutomatedMode, never on a per-tool re-check of the raw environment variable.
 
     private static string? _outputDirectory;
 

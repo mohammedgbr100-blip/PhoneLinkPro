@@ -57,14 +57,45 @@ public sealed class ReleaseScriptTests
         Assert.Contains("-ne 0) { Fail \"Release PLP_SELFTEST exited", stepBody, StringComparison.Ordinal);
     }
 
-    [Fact] // [REGRESSION] the gate must check the EXACT totals the independent review named —
-           // not just an overall exit code, so a suite silently shrinking is still caught
-    public void Script_ReleasePlpSelfTestChecksExactTotals()
+    [Fact] // [REGRESSION] repair batch 5B (§5): the gate must validate the EXACT, UNIQUE suite
+           // contract via SelfTestReportValidator.ps1 — not merely sum every matching
+           // denominator, which could let a duplicated suite and an omitted suite with the same
+           // denominator silently cancel out
+    public void Script_ReleasePlpSelfTestUsesTheExactUniqueSuiteValidator()
     {
         var script = ReleaseScript;
-        Assert.Contains("'dashboard-ordering:\\s*42/42'", script, StringComparison.Ordinal);
-        Assert.Contains("'dashboard-ordering-stress:\\s*1100/1100'", script, StringComparison.Ordinal);
-        Assert.Contains("-ne 1920) {", script, StringComparison.Ordinal);
+        Assert.Contains(". (Join-Path $PSScriptRoot 'SelfTestReportValidator.ps1')", script, StringComparison.Ordinal);
+        Assert.Contains("Test-SelfTestReport -Report $selfTestReport", script, StringComparison.Ordinal);
+        Assert.Contains("if (-not $selfTestValidation.IsValid)", script, StringComparison.Ordinal);
+    }
+
+    [Fact] // [REGRESSION] the validator file itself must define every required suite exactly
+           // once, keyed by name (a dictionary, not only a running sum) — see
+           // SelfTestReportValidatorTests for the full behavioral proof of the contract
+    public void Validator_DefinesEveryRequiredSuiteWithItsExactDenominator()
+    {
+        var validator = TestPaths.ReadRepoFile("SelfTestReportValidator.ps1");
+
+        Assert.Contains("'design'                    = 6", validator, StringComparison.Ordinal);
+        Assert.Contains("'fit'                       = 6", validator, StringComparison.Ordinal);
+        Assert.Contains("'lifecycle'                 = 25", validator, StringComparison.Ordinal);
+        Assert.Contains("'dashboard'                 = 14", validator, StringComparison.Ordinal);
+        Assert.Contains("'dashboard-stale'           = 19", validator, StringComparison.Ordinal);
+        Assert.Contains("'dashboard-ordering'        = 55", validator, StringComparison.Ordinal);
+        Assert.Contains("'dashboard-visual'          = 89", validator, StringComparison.Ordinal);
+        Assert.Contains("'setup-wizard'              = 107", validator, StringComparison.Ordinal);
+        Assert.Contains("'wireless'                  = 105", validator, StringComparison.Ordinal);
+        Assert.Contains("'transfers'                 = 179", validator, StringComparison.Ordinal);
+        Assert.Contains("'settings'                  = 144", validator, StringComparison.Ordinal);
+        Assert.Contains("'about'                     = 84", validator, StringComparison.Ordinal);
+        Assert.Contains("'dashboard-ordering-stress' = 1100", validator, StringComparison.Ordinal);
+
+        // A duplicate suite, an unknown suite, and a FAIL line must all be rejected explicitly —
+        // not merely "ignored" (which would let a duplicate/omission pair silently cancel out).
+        Assert.Contains("duplicate suite", validator, StringComparison.Ordinal);
+        Assert.Contains("unknown suite", validator, StringComparison.Ordinal);
+        Assert.Contains("FAIL line present", validator, StringComparison.Ordinal);
+        Assert.Contains("missing required suite", validator, StringComparison.Ordinal);
     }
 
     [Fact] // [REGRESSION] the Release PLP_SELFTEST step must run after tests and before publish
