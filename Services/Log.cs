@@ -44,6 +44,16 @@ public static class Log
 
     private static void Write(string level, string msg)
     {
+        // PRIV-01: the single authoritative pre-persistence boundary. Every Info/Warn/Error —
+        // including future call sites and any exception text appended by <see cref="Error"/> —
+        // funnels through here, so no raw device serial, user-profile path, remote transfer
+        // path, wireless endpoint or pairing code can reach the file even when a caller forgets
+        // to redact. <see cref="SupportBundle"/> sanitizes again on export (defence in depth).
+        // Fails CLOSED: if redaction itself fails the entry is withheld rather than written raw.
+        string safe;
+        try { safe = LogSanitizer.Sanitize(msg); }
+        catch { safe = "(entry withheld: redaction failed)"; }
+
         try
         {
             lock (_sync)
@@ -55,7 +65,7 @@ public static class Log
                 EnforceSizeCap(file);
 
                 var text = (File.Exists(file) ? "" : HeaderLine())
-                           + $"{DateTime.Now:HH:mm:ss.fff} [{level}] {msg}{Environment.NewLine}";
+                           + $"{DateTime.Now:HH:mm:ss.fff} [{level}] {safe}{Environment.NewLine}";
                 Append(file, text);
             }
         }

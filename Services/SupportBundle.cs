@@ -22,7 +22,8 @@ public sealed record SupportBundleResult(bool Success, string? ZipPath, string? 
 ///
 /// <para><b>Never included:</b> pairing codes, full serials, user or phone files,
 /// screenshots, recordings, APKs, keys/certificates, engine binaries, or engine hash values
-/// (the summary carries the integrity STATUS only; hashes stay in local logs).</para>
+/// (the summary carries the integrity STATUS only; local logs keep just a shortened hash
+/// prefix, because PRIV-01 sanitizes every entry before it is written).</para>
 /// </summary>
 public static class SupportBundle
 {

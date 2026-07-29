@@ -149,7 +149,7 @@
                             <TextBlock x:Name="PolicyVersionText" Style="{StaticResource Text.Body}" Margin="0,0,0,4"/>
                             <TextBlock x:Name="ConsentStatusText" Style="{StaticResource Text.Secondary}" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
-                            <TextBlock Text="لا تتضمّن هذه الصفحة أرقام الأجهزة التسلسلية، ولا مسارات نقل الملفات، ولا مخرجات adb الخام — هذه المعلومة هنا للعرض فقط ولا يمكن قبول أو سحب الموافقة منها."
+                            <TextBlock Text="لا تتضمّن هذه الصفحة أرقام الأجهزة التسلسلية، ولا مسارات نقل الملفات، ولا مخرجات التشخيص الخام — هذه المعلومة هنا للعرض فقط ولا يمكن قبول أو سحب الموافقة منها."
                                        Style="{StaticResource Text.Caption}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                             <!-- Stacked full-width (repair batch §9): a side-by-side horizontal

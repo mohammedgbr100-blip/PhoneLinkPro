@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace ScrcpyDeck.Services;
@@ -76,11 +77,15 @@ public sealed record ProcessCommand(
     string? RedactedDescription = null)
 {
     /// <summary>
-    /// What may safely be written to the log. Falls back to the real argument list, so
-    /// callers handling secrets (for example pairing codes) must set this explicitly.
+    /// What may safely be written to the log. Each argument is masked as a whole token
+    /// (PRIV-01) — which is only possible HERE: once the list is joined, a user-chosen file
+    /// name containing spaces ("Bank Statement.pdf") can no longer be told apart from the next
+    /// argument, and any downstream text rule would leak the tail. Callers holding a secret
+    /// that is not a path (a pairing code) must still set <see cref="RedactedDescription"/>.
     /// </summary>
     public string LogText => RedactedDescription
-        ?? $"{Path.GetFileName(ExecutablePath)} {string.Join(' ', Arguments)}";
+        ?? $"{Path.GetFileName(ExecutablePath)} " +
+           string.Join(' ', Arguments.Select(LogSanitizer.MaskPathToken));
 }
 
 /// <summary>Runs external console tools (adb) hidden and captures their output.</summary>
