@@ -22,7 +22,6 @@ echo ============================================================
 echo  Published to: %PUB%
 echo.
 echo  Next steps:
-echo   (optional) Security\obfuscate.bat   - harden the assembly
 echo   installer\build-installer.bat       - build PhoneLinkPro-Setup.exe
 echo ============================================================
 pause

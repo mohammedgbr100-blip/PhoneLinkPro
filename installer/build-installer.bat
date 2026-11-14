@@ -17,6 +17,14 @@ if not exist "..\bin\Release\net9.0-windows\win-x64\publish\PhoneLinkPro.exe" (
     exit /b 1
 )
 
+echo Testing installer switches (/REMOVESETTINGS, /ALLOWDOWNGRADE)...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0test-installer-switches.ps1"
+if errorlevel 1 (
+    echo [!] Installer switch tests failed - the installer was NOT built.
+    pause
+    exit /b 1
+)
+
 echo Compiling installer...
 %ISCC% PhoneLinkPro.iss
 if errorlevel 1 (

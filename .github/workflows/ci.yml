@@ -1,0 +1,110 @@
+name: CI
+
+# GitHub-hosted CI is deliberately DEFERRED while the repository is private (the private-repo
+# Actions minutes are exhausted). The job below only runs when the repository is public; on a
+# private or internal repository every trigger produces a skipped job and uses no runner minutes.
+# After the repository is made public, start the first run by hand (Actions -> CI -> Run workflow).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    # Fail closed: anything other than an explicit "public" (private, internal, or a payload
+    # without the field) skips the job instead of starting a runner.
+    if: github.event.repository.visibility == 'public'
+    # Standard GitHub-hosted Windows runner (free for public repositories); not a larger runner.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      SCRCPY_VERSION: v3.3.4
+      # SHA-256 of the official scrcpy-win64-v3.3.4.zip, taken from the release's
+      # SHA256SUMS.txt (OpenPGP-signed by Romain Vimont, primary key fingerprint
+      # 456958E85A185DD5C2D1E4E80C822B298461FA03). Changing the engine version means
+      # updating this value AND Resources/engine.manifest together, in one reviewed change.
+      SCRCPY_ZIP_SHA256: d8a155b7c180b7ca4cdadd40712b8750b63f3aab48cb5b8a2a39ac2d0d4c5d38
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 9.0.x
+
+      # The engine bundle is not committed; the build copies it from a sibling ..\scrcpy folder.
+      - name: Fetch and verify scrcpy engine bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = "scrcpy-win64-$env:SCRCPY_VERSION"
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest -Uri "https://github.com/Genymobile/scrcpy/releases/download/$env:SCRCPY_VERSION/$name.zip" -OutFile $zip
+          $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+          if ($actual -ne $env:SCRCPY_ZIP_SHA256) {
+            throw "scrcpy zip SHA-256 mismatch: expected $env:SCRCPY_ZIP_SHA256, got $actual"
+          }
+          Write-Host "scrcpy zip SHA-256 verified: $actual"
+          $extract = Join-Path $env:RUNNER_TEMP 'scrcpy-extract'
+          Expand-Archive $zip -DestinationPath $extract -Force
+          $dest = Join-Path (Split-Path $env:GITHUB_WORKSPACE -Parent) 'scrcpy'
+          Move-Item (Join-Path $extract $name) $dest
+          Get-ChildItem $dest | Format-Table Name, Length
+
+      # Every file the build will copy into engine/ must match Resources/engine.manifest exactly,
+      # before anything is built (the Release publish gate checks the same again afterwards).
+      - name: Verify extracted engine files against Resources/engine.manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path (Split-Path $env:GITHUB_WORKSPACE -Parent) 'scrcpy'
+          $lines = @(Get-Content Resources/engine.manifest)
+          if ($lines[0] -ne 'PLP-ENGINE-MANIFEST 1') { throw "unexpected manifest header: $($lines[0])" }
+          $entries = @($lines | Select-Object -Skip 1 | Where-Object { $_ })
+          # Renamed engine files (ScrcpyDeck.csproj CopyEngineToBuild); DLLs keep their names.
+          $renamed = @{ 'engine/PhoneLink.Engine.exe' = 'scrcpy.exe'; 'engine/PhoneLink.Bridge.exe' = 'adb.exe'; 'engine/core.dat' = 'scrcpy-server' }
+          $failed = 0
+          $listed = @()
+          foreach ($line in $entries) {
+            if ($line -notmatch '^([0-9a-f]{64}) (engine/.+)$') { Write-Host "MALFORMED manifest line: $line"; $failed++; continue }
+            $hash = $Matches[1]; $path = $Matches[2]; $listed += $path
+            $name = if ($renamed.ContainsKey($path)) { $renamed[$path] } else { $path.Substring('engine/'.Length) }
+            $file = Join-Path $src $name
+            if (-not (Test-Path $file)) { Write-Host "MISSING  $name (for $path)"; $failed++; continue }
+            $actual = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+            if ($actual -ne $hash) { Write-Host "MISMATCH $name -> $path`n         expected $hash`n         got      $actual"; $failed++ }
+            else { Write-Host "OK       $name -> $path" }
+          }
+          foreach ($dll in Get-ChildItem $src -Filter *.dll) {
+            if ("engine/$($dll.Name)" -notin $listed) { Write-Host "UNLISTED $($dll.Name) (would be copied into engine/ but is not in the manifest)"; $failed++ }
+          }
+          if ($failed) { throw "$failed engine file(s) failed verification" }
+          Write-Host "All $($entries.Count) engine files match Resources/engine.manifest"
+
+      - name: Build (Release, warnings as errors)
+        run: dotnet build ScrcpyDeck.csproj -c Release -warnaserror
+
+      - name: Test
+        run: dotnet test tests/PhoneLinkPro.Tests -c Release --results-directory TestResults --logger "trx;LogFileName=results.trx"
+
+      # A Release publish runs the app's own engine-integrity gate (VerifyEngineIntegrityAfterPublish):
+      # it fails unless every engine file matches Resources/engine.manifest.
+      - name: Publish (engine integrity gate)
+        run: dotnet publish ScrcpyDeck.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: warn

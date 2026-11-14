@@ -1,11 +1,23 @@
 # PhoneLink Pro
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
+![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4)
+
+> **English summary:** PhoneLink Pro is a Windows (WPF / .NET 9) desktop app with an Arabic-first UI
+> for mirroring and controlling Android phones, wireless pairing, file transfer and app management.
+> It is a friendly front-end built on top of [scrcpy](https://github.com/Genymobile/scrcpy) and
+> Android `adb`. Source code is MIT-licensed; bundled third-party components keep their own licenses.
+
 <div dir="rtl">
 
 **PhoneLink Pro** — لوحة تحكم احترافية للأندرويد على ويندوز. تتحكّم بهاتفك وتعرض شاشته
 على حاسوبك بضغطة زر، وتنقل الملفات وتدير التطبيقات — بواجهة عربية بسيطة دون أي خبرة تقنية.
 
-**تصميم وتطوير: ENG. Mohammed Sattar** · © 2026 — جميع الحقوق محفوظة.
+مبني فوق المشروعين مفتوحي المصدر [scrcpy](https://github.com/Genymobile/scrcpy) و
+[Android SDK Platform-Tools (adb)](https://developer.android.com/tools/releases/platform-tools).
+
+**تصميم وتطوير: ENG. Mohammed Sattar** · © 2026 · مرخّص بموجب [MIT](LICENSE).
 
 ---
 
@@ -21,36 +33,93 @@
 | 📁 نقل الملفات | رفع بالسحب والإفلات + سحب مع مؤشر تحميل |
 
 يبدأ التطبيق بـ **سياسة خصوصية** يوافق عليها المستخدم، ثم **شرح تعليمي** خطوة بخطوة
-(متاح دائماً من زر «؟»).
+(متاح دائماً من زر «؟»). البرنامج يعمل محلياً بالكامل ولا يرسل أي بيانات إلى الإنترنت.
 
 ---
 
 ## التشغيل (للمستخدم)
 
-الطريقة الأسهل: شغّل **`PhoneLinkPro-Setup.exe`** ← التالي ← تثبيت. يعمل بنقرة، بدون أي متطلبات.
+> **لا توجد نسخة ثنائية (مثبّت) منشورة بعد.** المثبّت معلّق إلى حين استكمال مراجعة تراخيص
+> المكوّنات المرفقة؛ إلى ذلك الحين ابنِ البرنامج من المصدر (القسم التالي).
 
-ثم من داخل البرنامج: وصّل الهاتف عبر USB وفعّل «تصحيح USB»، ثم لوحة الأجهزة ← تحديث ← تحديد وبثّ.
+عند صدور أول نسخة: نزّل المثبّت **`PhoneLinkPro-Setup-v<الإصدار>.exe`** من صفحة
+[Releases](../../releases) ← التالي ← تثبيت.
+
+ثم من داخل البرنامج: وصّل الهاتف عبر USB وفعّل «تصحيح USB»، ثم لوحة الأجهزة ← تحديد وبثّ.
+
+> قد تكون النسخ **غير موقّعة رقمياً**، وعندها يُظهر Windows SmartScreen تحذيراً عند التشغيل الأول.
 
 ---
 
 ## البناء من المصدر (للمطوّر)
 
-المتطلبات: **.NET 9 SDK** (وللمثبّت: **Inno Setup 6**).
+### المتطلبات
 
-```bat
-build-run.bat                    :: تشغيل نسخة التطوير
-publish.bat                      :: نشر نظيف self-contained
-Security\obfuscate.bat           :: (اختياري) تعتيم الحماية — يتطلب ConfuserEx2
-installer\build-installer.bat    :: بناء PhoneLinkPro-Setup.exe
+- Windows 10/11 x64
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- (للمثبّت فقط) [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+- **حزمة المحرّك:** ملفات scrcpy لا تُودَع في هذا المستودع. نزّل
+  [`scrcpy-win64-v3.3.4.zip`](https://github.com/Genymobile/scrcpy/releases/tag/v3.3.4)
+  وفكّ ضغطها في مجلد اسمه `scrcpy` **بجانب** مجلد المستودع:
+
+```text
+<أي مجلد>\
+├─ PhoneLinkPro\   ← هذا المستودع
+└─ scrcpy\         ← محتوى scrcpy-win64-v3.3.4 (scrcpy.exe, adb.exe, scrcpy-server, *.dll)
 ```
 
-الناتج النهائي: `dist\PhoneLinkPro-Setup.exe`.
+تحقّق من الملف المضغوط قبل فكّه — يجب أن تطابق البصمة القيمة الرسمية في
+[`SHA256SUMS.txt`](https://github.com/Genymobile/scrcpy/releases/download/v3.3.4/SHA256SUMS.txt):
 
-راجع **HANDOFF.md** للتفاصيل الكاملة (المعمارية، إخفاء الهوية، الأمان، الميزات المدفوعة مستقبلاً).
+```powershell
+(Get-FileHash .\scrcpy-win64-v3.3.4.zip -Algorithm SHA256).Hash
+# المتوقّع: D8A155B7C180B7CA4CDADD40712B8750B63F3AAB48CB5B8A2A39AC2D0D4C5D38
+```
+
+يتحقق التطبيق من بصمات SHA-256 لملفات المحرّك مقابل `Resources\engine.manifest`. إن استخدمت
+نسخة scrcpy مختلفة، شغّل `update-engine-manifest.bat` ثم أعد البناء (انظر `Security\INTEGRITY.md`).
+
+### الأوامر
+
+نفّذ الأوامر من جذر المستودع:
+
+| الأمر | الغرض |
+|---|---|
+| `dotnet build ScrcpyDeck.csproj -c Release -warnaserror` | بناء Release (كما في CI) |
+| `dotnet test tests\PhoneLinkPro.Tests -c Release` | كل الاختبارات |
+| `dotnet publish ScrcpyDeck.csproj -c Release -r win-x64 --self-contained true` | نشر + فحص سلامة المحرّك |
+| `build-run.bat` | بناء وتشغيل نسخة التطوير (Debug) |
+| `publish.bat` | نشر نظيف self-contained |
+| `installer\build-installer.bat` | اختبار مفاتيح المثبّت ثم بناء `dist\PhoneLinkPro-Setup.exe` (يتطلب Inno Setup 6) |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File release.ps1` | خط الإصدار الكامل |
+
+> ملاحظة: بعض الاختبارات تشغّل التطبيق الفعلي في وضع اختبار ذاتي مخفي (`PLP_SELFTEST`) وتنشئ
+> نوافذ WPF حقيقية؛ شغّلها في جلسة Windows عادية بسطح مكتب نشط.
+
+للتفاصيل الكاملة (المعمارية، سلامة المحرّك، سلوك المثبّت، خط الإصدار) راجع
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## المساهمة والأمان
+
+- المساهمات مرحّب بها — راجع [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- للإبلاغ عن ثغرة أمنية راجع [`SECURITY.md`](SECURITY.md) (لا تفتح Issue عاماً).
+
+## الترخيص
+
+- شيفرة PhoneLink Pro: [MIT](LICENSE).
+- اسم «PhoneLink Pro» وشعار M+S يخصّان المطوّر ولا يشملهما ترخيص MIT.
+- المكوّنات المرفقة (scrcpy، adb، FFmpeg، dav1d، SDL2، libusb، ومكتبات تشغيل .NET) لا يشملها
+  ترخيص MIT وتخضع لتراخيصها الخاصة —
+  راجع [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt) ومجلد [`Licenses`](Licenses).
 
 ---
 
 ## سجل التغييرات
+
+### غير مُصدَر
+- المشروع أصبح مفتوح المصدر بترخيص MIT؛ تحديث نص السياسة إلى الإصدار 1.2 (يُطلب من المستخدم الموافقة مجدداً).
 
 ### v1.2.0
 - **إعادة بناء كاملة للواجهة (2.0)**: صدفة تطبيق جديدة بتنقّل جانبي وتصميم موحّد، ولوحة أجهزة مُعاد تصميمها ببطاقة جهاز رئيسية وحالة حيّة دون أي إعادة رسم قديمة.

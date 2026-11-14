@@ -490,19 +490,84 @@ public sealed class ProcessRunnerTests : IDisposable
 
     // ---------------------------------------------------------------- orphan sweep
 
-    [Fact]
+    [Fact] // public-release audit: scoped to OUR children — a machine-wide cmd.exe sample made
+           // this fail whenever any other application started a cmd.exe during the test
     public async Task RunAsync_DoesNotLeakChildProcesses()
     {
-        var before = Process.GetProcessesByName("cmd").Select(p => p.Id).ToHashSet();
+        var self = Environment.ProcessId;
+        var before = ProcessTree.ChildProcessIds(self, "cmd.exe");
 
         for (var i = 0; i < 5; i++)
             await ProcessRunner.RunAsync(Cmd, CmdC("exit 0"), 15000);
 
-        var leaked = Process.GetProcessesByName("cmd")
-            .Where(p => !before.Contains(p.Id))
-            .Where(p => { try { return !p.HasExited; } catch { return false; } })
+        var leaked = ProcessTree.ChildProcessIds(self, "cmd.exe")
+            .Where(pid => !before.Contains(pid))
             .ToList();
 
         Assert.Empty(leaked);
+    }
+
+    [Fact] // the scoped sweep still sees a real leak: a child of this process that is still alive
+    public void ProcessTree_AttributesARunningDirectChildToThisProcess()
+    {
+        using var child = Process.Start(new ProcessStartInfo(Cmd, "/c ping -n 30 127.0.0.1 >nul")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        })!;
+        try
+        {
+            Assert.Contains(child.Id, ProcessTree.ChildProcessIds(Environment.ProcessId, "cmd.exe"));
+        }
+        finally
+        {
+            try { child.Kill(entireProcessTree: true); child.WaitForExit(5000); } catch { }
+        }
+    }
+
+    [Fact] // [REGRESSION] the observed false positive: a cmd.exe that is NOT our child (here, a
+           // grandchild whose parent already exited) must not be blamed on ProcessRunner
+    public void ProcessTree_DoesNotAttributeAnUnrelatedCmdToThisProcess()
+    {
+        using var launcher = Process.Start(new ProcessStartInfo(Cmd,
+            "/c start \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 >nul\"")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        })!;
+        Assert.True(launcher.WaitForExit(10000), "the launcher cmd did not exit");
+
+        int? foreignPid = null;
+        try
+        {
+            for (var attempt = 0; attempt < 50 && foreignPid == null; attempt++)
+            {
+                foreignPid = ProcessTree.Snapshot()
+                    .Where(p => p.ParentPid == launcher.Id &&
+                                string.Equals(p.ExeName, "cmd.exe", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => (int?)p.Pid)
+                    .FirstOrDefault();
+                if (foreignPid == null) Thread.Sleep(100);
+            }
+            Assert.True(foreignPid != null, "the detached cmd.exe was not found");
+
+            // The old machine-wide sample counted it ...
+            Assert.Contains(foreignPid.Value, Process.GetProcessesByName("cmd").Select(p => p.Id));
+            // ... the scoped sweep does not.
+            Assert.DoesNotContain(foreignPid.Value, ProcessTree.ChildProcessIds(Environment.ProcessId, "cmd.exe"));
+        }
+        finally
+        {
+            if (foreignPid is { } pid)
+            {
+                try
+                {
+                    using var foreign = Process.GetProcessById(pid);
+                    foreign.Kill(entireProcessTree: true);
+                    foreign.WaitForExit(5000);
+                }
+                catch { /* already gone */ }
+            }
+        }
     }
 }

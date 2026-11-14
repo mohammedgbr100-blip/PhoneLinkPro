@@ -17,6 +17,12 @@ namespace PhoneLinkPro.Tests;
 /// The identity guard deliberately inspects RENDERED string values (and accessibility names),
 /// not source symbols, so internal resource keys such as <c>{StaticResource Adb}</c> and the
 /// <c>ScrcpyDeck</c> namespace stay legal while a visible caption never can.
+/// <para>Deliberate exception (public open-source release): the LEGAL texts name the upstream
+/// projects, because attribution requires it. These are the third-party section of the privacy
+/// policy (<see cref="PolicyText"/>, shown in the consent and policy windows) and the
+/// THIRD-PARTY-NOTICES text shown by the notices window. HW-2026-001 covers UI captions and
+/// accessibility names (XAML and code-set captions), never those legal texts; see
+/// <see cref="PolicyText_NamesTheEngineOnlyInItsThirdPartyAttributionSection"/>.</para>
 /// </summary>
 [Collection(GlobalStateCollection.Name)]   // shares Log.DirOverride with every other suite
 public sealed class PrivacyRepairTests : IDisposable
@@ -63,9 +69,27 @@ public sealed class PrivacyRepairTests : IDisposable
 
     // ================================================== HW-2026-001 — visible identity
 
-    /// <summary>Terms that must never be RENDERED, whatever they are called internally.</summary>
+    /// <summary>Terms that must never be RENDERED in a UI caption, whatever they are called
+    /// internally (legal texts excepted; see the class summary).</summary>
     private static readonly string[] ForbiddenVisibleTerms =
         ["adb", "scrcpy", "phonelink.bridge", "phonelink.engine"];
+
+    [Fact] // the documented exception stays exactly that narrow: the policy names the engine
+           // only in its third-party attribution section (٦), nowhere else
+    public void PolicyText_NamesTheEngineOnlyInItsThirdPartyAttributionSection()
+    {
+        var text = PolicyText.Privacy;
+        var section6 = text.IndexOf("٦)", StringComparison.Ordinal);
+        var section7 = text.IndexOf("٧)", StringComparison.Ordinal);
+        Assert.True(section6 >= 0 && section7 > section6, "the policy must keep sections ٦ and ٧ in order");
+
+        foreach (var term in new[] { "scrcpy", "adb" })
+        {
+            var outside = text[..section6] + text[section7..];
+            Assert.DoesNotMatch(new Regex($@"(?i)\b{term}\b"), outside);
+            Assert.Matches(new Regex($@"(?i)\b{term}\b"), text[section6..section7]);
+        }
+    }
 
     /// <summary>XAML attributes WPF shows on screen or hands to a screen reader.</summary>
     private static readonly Regex RenderedAttribute = new(

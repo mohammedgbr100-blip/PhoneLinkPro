@@ -115,7 +115,7 @@ public partial class AboutWindow : Window
         PreviewKeyDown += AboutWindow_PreviewKeyDown;
 
         VersionText.Text = "الإصدار " + AppVersionInfo.ProductVersion;
-        CopyrightText.Text = "© 2026 Mohammed Sattar — جميع الحقوق محفوظة";
+        CopyrightText.Text = "© 2026 Mohammed Sattar — مرخّص بموجب MIT";
         ArchitectureText.Text = RuntimeInformation.ProcessArchitecture.ToString();
         EngineVersionText.Text = "v" + EngineManifest.Version.ToString(CultureInfo.InvariantCulture);
 

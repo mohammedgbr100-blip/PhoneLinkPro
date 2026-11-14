@@ -51,6 +51,12 @@
                             <TextBlock Text="أداة عرض شاشة أندرويد ونقل الملفات والتحكم بالجهاز محلياً من الحاسوب."
                                        Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" TextAlignment="Center"
                                        HorizontalAlignment="Center" MaxWidth="360" Margin="0,10,0,0"/>
+                            <!-- Third-party attribution: the engine components are NOT the developer's work.
+                                 Names stay in the notices/policy texts (HW-2026-001 keeps them out of rendered XAML). -->
+                            <TextBlock x:Name="ThirdPartyAttributionText"
+                                       Text="يعتمد على مكوّنات مفتوحة المصدر يملكها أصحابها — التفاصيل في «التراخيص والإشعارات القانونية» أدناه."
+                                       Style="{StaticResource Text.Caption}" TextWrapping="Wrap" TextAlignment="Center"
+                                       HorizontalAlignment="Center" MaxWidth="360" Margin="0,6,0,0"/>
 
                             <Border Style="{StaticResource Divider.Horizontal}" Margin="20,16"/>
 

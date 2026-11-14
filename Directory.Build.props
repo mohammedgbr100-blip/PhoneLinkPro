@@ -21,7 +21,7 @@
     <PlpProductName>PhoneLink Pro</PlpProductName>
     <PlpProductVersion>1.2.0</PlpProductVersion>
     <PlpCompany>ENG. Mohammed Sattar</PlpCompany>
-    <PlpCopyright>© 2026 ENG. Mohammed Sattar. All rights reserved.</PlpCopyright>
+    <PlpCopyright>Copyright © 2026 ENG. Mohammed Sattar. Licensed under the MIT License.</PlpCopyright>
   </PropertyGroup>
 
   <PropertyGroup>

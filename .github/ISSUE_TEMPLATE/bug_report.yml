@@ -1,0 +1,39 @@
+name: 🐞 Bug report / بلاغ عن خطأ
+description: Something is not working / شيء لا يعمل كما يجب
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened? / ماذا حدث؟
+      description: Steps to reproduce and what you expected. / خطوات إعادة الإنتاج وما كنت تتوقعه.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PhoneLink Pro version / الإصدار
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 23H2"
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model & Android version / موديل الهاتف ونسخة أندرويد
+      placeholder: "Samsung Galaxy S23, Android 14"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics / ملف التشخيص
+      description: >
+        Optional. Issues are PUBLIC. The diagnostics ZIP from the About window is sanitized, but it
+        still contains your phone model, masked serial numbers and Windows build. Open it and review
+        it before attaching, or leave it out. Never paste pairing codes or full serial numbers. /
+        اختياري. البلاغات هنا عامة يراها الجميع. ملف التشخيص من نافذة «حول» مُنقّى، لكنه يحتوي
+        موديل الهاتف وأرقاماً تسلسلية مقنّعة ونسخة Windows؛ افتحه وراجعه قبل إرفاقه أو لا ترفقه.
+        لا تلصق رموز الإقران أو الأرقام التسلسلية.

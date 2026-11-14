@@ -47,13 +47,28 @@ namespace ScrcpyDeck.Services;
 /// stops racing its own assertions against an unresolved continuation. This repair is therefore
 /// harness-only; no production ownership/generation logic changed.
 /// </para>
+///
+/// <para>
+/// Public-release audit follow-up: Batch 5A still bounded that wait by a COUNT (200 pumps),
+/// which re-created the same race in a smaller window — with the continuation still in its
+/// thread-pool hop the dispatcher queue is empty, so 200 pumps take only milliseconds. Under the
+/// CPU load of the parallel xUnit suite this occasionally failed Scenarios C and E together in
+/// one stress iteration. Both waits now go through <see cref="DispatcherWait"/>: signal-driven,
+/// bounded only by wall-clock time.
+/// </para>
 /// </summary>
 internal static class DashboardMissedUpdateOrderingSelfTest
 {
     internal sealed record Result(bool Passed, int Total, int Failed, string Report);
 
+    // Shared by every wait of the current run (see WaitBudget): once one wait proves a real hang,
+    // the rest are short, so a hung run still finishes and reports inside the caller's timeout.
+    // Reset at the start of each entry point; the harness runs on the UI thread only.
+    private static WaitBudget s_budget = new(DispatcherWait.DefaultTimeout);
+
     internal static Result Run()
     {
+        s_budget = new WaitBudget(DispatcherWait.DefaultTimeout);
         var lines = new StringBuilder();
         var failures = new List<string>();
         var total = 0;
@@ -352,12 +367,13 @@ internal static class DashboardMissedUpdateOrderingSelfTest
     /// times with full per-iteration isolation (a fresh DashboardView and fresh
     /// TaskCompletionSources each time), using the same deterministic
     /// <see cref="RunAndWaitForSettle"/> synchronization as <see cref="Run"/>. Bounded (no real
-    /// sleeps, no dependence on CPU speed beyond the per-operation dispatcher-pump cap), and
-    /// every failure is reported with its scenario, iteration and the exact expected/actual/
+    /// sleeps; each wait is bounded by wall-clock time through the run's <see cref="WaitBudget"/>),
+    /// and every failure is reported with its scenario, iteration and the exact expected/actual/
     /// generation-owner state the failing assertion carries in its own name.
     /// </summary>
     internal static Result RunOrderingStressGate(int iterations = 50)
     {
+        s_budget = new WaitBudget(DispatcherWait.DefaultTimeout);
         var failures = new List<string>();
         var total = 0;
         // Repair (independent review, §12): tracks how many iterations actually RAN to
@@ -384,6 +400,18 @@ internal static class DashboardMissedUpdateOrderingSelfTest
                 failures.AddRange(fe.Select(f => $"iteration {i}, scenario E: {f}"));
 
                 completedIterations = i + 1;
+
+                // A wait that ran into its timeout means a genuine hang, not a race: stop here
+                // rather than run the remaining iterations (up to 150 more waits). Together with
+                // the run's WaitBudget this keeps a hung run well inside the caller's process
+                // timeout. The incomplete run is reported as a failure below
+                // (completedIterations < iterations).
+                if (fc.Concat(fe).Any(f => f.Contains(" settled", StringComparison.Ordinal)))
+                {
+                    failures.Add($"stopped after iteration {i}: an operation did not settle within " +
+                                 $"{DispatcherWait.DefaultTimeout.TotalSeconds:0}s (hang)");
+                    break;
+                }
             }
         }
         catch (Exception ex)
@@ -611,32 +639,31 @@ internal static class DashboardMissedUpdateOrderingSelfTest
     }
 
     /// <summary>
-    /// Deterministic replacement for a fixed dispatcher-pump count (Batch 5A). Installs
-    /// DashboardView.OperationSettledForTests, runs <paramref name="trigger"/> — which starts or
-    /// resolves the operation under test (a TaskCompletionSource.SetResult/SetException, or
-    /// raising a watcher event) — then pumps the dispatcher only for as long as it actually
-    /// takes for that exact operation's finally block to run (which is where the signal fires),
-    /// never guessing how many pumps "should" be enough and never leaving real causal work
-    /// unflushed. Bounded by <paramref name="maxIterations"/> so a genuine hang still fails fast
-    /// instead of looping forever. Returns whether the signal was actually observed — false is
-    /// hard proof of a stuck/never-settling operation, never silently treated as success.
+    /// Waits for the operation under test to settle. Installs DashboardView.OperationSettledForTests,
+    /// runs <paramref name="trigger"/> — which starts or resolves the operation under test (a
+    /// TaskCompletionSource.SetResult/SetException, or raising a watcher event) — then runs the
+    /// dispatcher until that exact operation's finally block raises the signal.
+    /// <para>
+    /// Public-release audit: the wait is bounded by wall-clock time via
+    /// <see cref="DispatcherWait"/>, no longer by a pump count. A 200-pump budget looked causal
+    /// but was really a few milliseconds whenever the continuation was still in its
+    /// thread-pool hop (an empty dispatcher queue makes every pump instant), so under CPU load a
+    /// correct operation was occasionally reported as never settled. Returns whether the signal
+    /// was actually observed — false is hard proof of a stuck/never-settling operation (only
+    /// reachable after <see cref="DispatcherWait.DefaultTimeout"/>), never treated as success.
+    /// </para>
     /// </summary>
-    private static bool RunAndWaitForSettle(Action trigger, int maxIterations = 200)
+    private static bool RunAndWaitForSettle(Action trigger, TimeSpan? timeout = null)
     {
-        var settled = false;
         var previous = DashboardView.OperationSettledForTests;
-        DashboardView.OperationSettledForTests = () => settled = true;
         DashboardView.OperationSettledHookExceptionForTests = null;
         try
         {
-            trigger();
-            for (var i = 0; i < maxIterations && !settled; i++)
+            var settled = s_budget.Record(DispatcherWait.UntilSignaled(signal =>
             {
-                var frame = new DispatcherFrame();
-                Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle,
-                    new Action(() => frame.Continue = false));
-                Dispatcher.PushFrame(frame);
-            }
+                DashboardView.OperationSettledForTests = signal;
+                trigger();
+            }, timeout ?? s_budget.Next));
             // Repair batch 5B (§6): this harness's OWN hook never throws, so observing one here
             // would mean something else corrupted the shared static between calls — fail loudly
             // rather than silently ignore it.
@@ -668,16 +695,10 @@ internal static class DashboardMissedUpdateOrderingSelfTest
     /// install their own throwing hook and must not trip RunAndWaitForSettle's unrelated
     /// "my own hook must never throw" guard.
     /// </summary>
-    private static bool PumpUntilComplete(Task task, int maxIterations = 200)
+    private static bool PumpUntilComplete(Task task)
     {
-        for (var i = 0; i < maxIterations && !task.IsCompleted; i++)
-        {
-            var frame = new DispatcherFrame();
-            Application.Current.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle,
-                new Action(() => frame.Continue = false));
-            Dispatcher.PushFrame(frame);
-        }
-        return task.IsCompleted;
+        // Wall-clock bound, never a pump count — see DispatcherWait and WaitBudget.
+        return s_budget.Record(DispatcherWait.UntilCompleted(task, s_budget.Next));
     }
 
     private static void PumpWithoutWaiting(int iterations = 6)

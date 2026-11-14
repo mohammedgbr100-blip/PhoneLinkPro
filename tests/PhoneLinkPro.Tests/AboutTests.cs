@@ -411,6 +411,40 @@ public sealed class AboutTests : IDisposable
         Assert.Contains("Mohammed Sattar", code, StringComparison.Ordinal);
     }
 
+    [Fact] // [REGRESSION] public-release licensing audit: the identity card credits the developer,
+           // so it must also say the engine components belong to their owners (no implied ownership)
+    public void AboutWindowXaml_IdentityCardAttributesThirdPartyComponents()
+    {
+        var xaml = TestPaths.ReadRepoFile("Windows", "AboutWindow.xaml");
+        var start = xaml.IndexOf("x:Name=\"ThirdPartyAttributionText\"", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the About identity card must keep its third-party attribution line");
+
+        var tag = xaml[start..xaml.IndexOf("/>", start, StringComparison.Ordinal)];
+        Assert.Contains("مفتوحة المصدر", tag, StringComparison.Ordinal);
+        // It names the button that actually opens the notices, by its real label.
+        Assert.Contains($"«{NoticesButtonLabel(xaml)}»", tag, StringComparison.Ordinal);
+
+        // it must sit inside the identity card, before the developer credit it qualifies
+        Assert.True(start < xaml.IndexOf("ENG. Mohammed Sattar Jabr", StringComparison.Ordinal),
+            "the attribution must appear on the identity card, ahead of the developer credit");
+    }
+
+    [Fact] // [REGRESSION] independent review: the policy text sends users to the notices button
+           // by name, so that name must be the button's real label
+    public void PolicyText_NamesTheNoticesButtonByItsRealLabel()
+    {
+        var label = NoticesButtonLabel(TestPaths.ReadRepoFile("Windows", "AboutWindow.xaml"));
+        Assert.Contains($"«{label}»", PolicyText.Privacy, StringComparison.Ordinal);
+        Assert.DoesNotContain("«إشعارات الطرف الثالث»", PolicyText.Privacy, StringComparison.Ordinal);
+    }
+
+    private static string NoticesButtonLabel(string aboutXaml)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(aboutXaml, "x:Name=\"NoticesBtn\" Content=\"([^\"]+)\"");
+        Assert.True(m.Success, "the About window must keep its NoticesBtn with a Content label");
+        return m.Groups[1].Value;
+    }
+
     [Fact]
     public void NoticesWindowXaml_ContainsNoOldPublicProductNameAndNoInventedLicenseClaim()
     {

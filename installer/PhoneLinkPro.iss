@@ -13,9 +13,12 @@
 ;     (PhoneLinkPro.exe --prepare-update) stops a leftover bundled
 ;     ADB server ONLY when its image path proves it is ours; foreign
 ;     or ambiguous servers (Android Studio...) are never touched.
-;   - Downgrades are refused unless /ALLOWDOWNGRADE is passed.
+;   - Downgrades are refused unless /ALLOWDOWNGRADE=1 is passed.
 ;   - User settings/logs in %AppData%\PhoneLinkPro are PRESERVED on
-;     uninstall by default; /REMOVESETTINGS=1 removes them.
+;     uninstall by default; /REMOVESETTINGS or /REMOVESETTINGS=1 removes
+;     them, /REMOVESETTINGS=0 (or any other value) keeps them. The switch
+;     logic lives in InstallerSwitches.iss and is tested by
+;     test-installer-switches.ps1 before every installer build.
 ; ============================================================
 
 #define MyAppName "PhoneLink Pro"
@@ -100,6 +103,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch PhoneLink Pro now"; Flag
 
 [Code]
 
+#include "InstallerSwitches.iss"
+
 { ---------- version comparison (numeric, per dot-part) ---------- }
 
 function VersionPart(const S: string; Index: Integer): Integer;
@@ -158,7 +163,7 @@ begin
   Existing := InstalledVersion();
   if (Existing <> '') and (CompareVersions('{#MyAppVersion}', Existing) < 0) then
   begin
-    if ExpandConstant('{param:ALLOWDOWNGRADE|0}') <> '1' then
+    if not DowngradeAllowed() then
     begin
       MsgBox('A newer version of PhoneLink Pro (' + Existing + ') is already installed.' + #13#10 +
              'Downgrading to {#MyAppVersion} is not supported.' + #13#10#13#10 +
@@ -223,25 +228,10 @@ begin
   RunPrepareUpdate('uninstall');
 end;
 
-{ Explicit command-line scan (the uninstaller forwards its parameters when it respawns
-  from %TEMP%, and GetCmdTail sees them in both instances). }
-function RemoveSettingsRequested(): Boolean;
-begin
-  Result := Pos('/REMOVESETTINGS', UpperCase(GetCmdTail())) > 0;
-end;
-
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   { Default: PRESERVE %AppData%\PhoneLinkPro (settings, consent, logs).
-    Explicit removal: uninstaller run with /REMOVESETTINGS=1. }
+    Explicit removal: uninstaller run with /REMOVESETTINGS=1 (see InstallerSwitches.iss). }
   if CurUninstallStep = usPostUninstall then
-  begin
-    if RemoveSettingsRequested() then
-    begin
-      DelTree(ExpandConstant('{userappdata}\PhoneLinkPro'), True, True, True);
-      Log('uninstall: user settings removed on request (/REMOVESETTINGS=1)');
-    end
-    else
-      Log('uninstall: user settings preserved (default)');
-  end;
+    ApplySettingsRemovalPolicy(ExpandConstant('{userappdata}\PhoneLinkPro'));
 end;

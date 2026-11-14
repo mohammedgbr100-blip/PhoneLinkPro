@@ -393,7 +393,7 @@ public sealed class SettingsTests : IDisposable
 
     [Fact] // PLP-CONSENT-01 — the amended policy is the current one
     public void PLPCONSENT01_CurrentPolicyVersionIsTheAmendedOne()
-        => Assert.Equal("1.1", SettingsStore.CurrentConsentVersion);
+        => Assert.Equal("1.2", SettingsStore.CurrentConsentVersion);
 
     [Fact] // PLP-CONSENT-01 — a user who accepted 1.0 is prompted again
     public void PLPCONSENT01_UserWhoAcceptedTheOldPolicyIsReprompted()
@@ -403,7 +403,7 @@ public sealed class SettingsTests : IDisposable
         Assert.False(SettingsStore.IsConsentValid(existing));
     }
 
-    [Fact] // PLP-CONSENT-01 — a user who accepted 1.1 is NOT prompted repeatedly
+    [Fact] // PLP-CONSENT-01 — a user who accepted the current version is NOT prompted repeatedly
     public void PLPCONSENT01_UserWhoAcceptedTheCurrentPolicyIsNotReprompted()
     {
         var current = new SettingsStore.Data

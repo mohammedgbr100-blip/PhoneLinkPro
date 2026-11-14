@@ -130,9 +130,45 @@ public sealed class DashboardMissedUpdateOrderingTests
         var code = TestPaths.ReadRepoFile("Services", "DashboardMissedUpdateOrderingSelfTest.cs");
         var body = ExtractMethodBody(code, "private static bool RunAndWaitForSettle(");
 
-        Assert.Contains("DashboardView.OperationSettledForTests = () => settled = true;", body);
-        Assert.Contains("for (var i = 0; i < maxIterations && !settled; i++)", body);
+        Assert.Contains("DispatcherWait.UntilSignaled(", body);
+        Assert.Contains("DashboardView.OperationSettledForTests = signal;", body);
         Assert.Contains("return settled;", body);
+    }
+
+    [Fact] // [REGRESSION] public-release audit: the intermittent
+           // RealLogDirectory_IsUnchangedAcrossACompleteSelfTestProcess failure was a 200-pump
+           // budget expiring while the awaited continuation was still in its thread-pool hop.
+           // No wait in this harness may be bounded by a pump COUNT again — only by wall-clock
+           // time through DispatcherWait (behavior proven by DispatcherWaitTests).
+    public void Source_NoHarnessWaitIsBoundedByAPumpCount()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "DashboardMissedUpdateOrderingSelfTest.cs");
+
+        Assert.DoesNotContain("maxIterations", code, StringComparison.Ordinal);
+        var pumpUntil = ExtractMethodBody(code, "private static bool PumpUntilComplete(");
+        Assert.Contains("DispatcherWait.UntilCompleted(", pumpUntil);
+    }
+
+    [Fact] // [REGRESSION] independent review: after one genuine hang, the remaining waits of the
+           // run must be short, so a hung run still reports its named failures inside the
+           // caller's process timeout (AutomatedModeTests 60 s, release.ps1 120 s)
+    public void Source_EveryHarnessWaitDrawsOnOneWaitBudgetResetPerRun()
+    {
+        var code = TestPaths.ReadRepoFile("Services", "DashboardMissedUpdateOrderingSelfTest.cs");
+
+        var settle = ExtractMethodBody(code, "private static bool RunAndWaitForSettle(");
+        Assert.Contains("timeout ?? s_budget.Next", settle);
+        Assert.Contains("s_budget.Record(", settle);
+
+        var pumpUntil = ExtractMethodBody(code, "private static bool PumpUntilComplete(");
+        Assert.Contains("s_budget.Record(DispatcherWait.UntilCompleted(task, s_budget.Next))", pumpUntil);
+
+        // a fresh budget at the start of each entry point, so one run's hang never shortens the next
+        Assert.Contains("s_budget = new WaitBudget(DispatcherWait.DefaultTimeout);",
+            ExtractMethodBody(code, "internal static Result Run("));
+        Assert.Contains("s_budget = new WaitBudget(DispatcherWait.DefaultTimeout);",
+            ExtractMethodBody(code, "internal static Result RunOrderingStressGate("));
+        Assert.DoesNotContain(", DispatcherWait.DefaultTimeout)", settle + pumpUntil);
     }
 
     [Fact] // [REGRESSION] Scenario C's release of the busy-holding operation, and Scenario E's

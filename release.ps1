@@ -152,12 +152,28 @@ if ($exeVersion -notlike "$version.*" -and $exeVersion -ne $version) {
     Fail "version drift: exe FileVersion '$exeVersion' does not match PlpProductVersion '$version'"
 }
 
+# ---------- 7b) licensing blockers for public distribution ----------
+# Public-release audit: the bundled adb.exe (Platform-Tools 36.0.0) statically links libraries
+# whose notices exist only in that package's NOTICE.txt. Until it is reproduced (see
+# Security\fetch-platform-tools-notice.ps1 and THIRD-PARTY-NOTICES.txt item (d)), artifacts may be
+# built and tested locally but are never marked releasable.
+$distributionBlockers = @()
+if (-not (Test-Path 'Licenses\platform-tools-NOTICE.txt')) {
+    $distributionBlockers += 'Licenses\platform-tools-NOTICE.txt is missing: the notices of the libraries statically linked into the bundled adb.exe (Android SDK Platform-Tools 36.0.0) are not reproduced yet - see THIRD-PARTY-NOTICES.txt item (d).'
+}
+foreach ($blocker in $distributionBlockers) { Step "DISTRIBUTION BLOCKER: $blocker" }
+
 # ---------- 8) installer ----------
 $installerSource = 'dist\PhoneLinkPro-Setup.exe'
 $installerBuilt = $false
 if (-not $SkipInstaller) {
     $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
     if (Test-Path $iscc) {
+        # The uninstaller decides whether to delete the user's %AppData%\PhoneLinkPro from its
+        # command line; that logic is tested against real Inno Setup processes before it ships.
+        Step 'Installer switch tests (/REMOVESETTINGS, /ALLOWDOWNGRADE)'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File 'installer\test-installer-switches.ps1' -Iscc $iscc
+        if ($LASTEXITCODE -ne 0) { Fail 'installer switch tests failed' }
         Step 'Installer (Inno Setup)'
         & $iscc 'installer\PhoneLinkPro.iss' /Q
         if ($LASTEXITCODE -ne 0) { Fail 'installer build failed' }
@@ -181,8 +197,12 @@ else { Fail 'signing was configured but failed' }
 
 # ---------- 10) stage artifacts + checksums ----------
 Step 'Checksums and release manifest'
+$releasable = $signed -and ($distributionBlockers.Count -eq 0)
+# Non-releasable artifacts never get release-looking names: unsigned ones say so, and a signed
+# build that is still blocked (licensing, step 7b) says that instead.
 $suffix = ''
 if (-not $signed) { $suffix = '-UNSIGNED' }
+elseif (-not $releasable) { $suffix = '-BLOCKED' }
 
 $installerArtifact = $null
 $installerSha = $null
@@ -209,7 +229,8 @@ $manifest = [ordered]@{
     commitSha             = $commit
     builtUtc              = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     signed                = $signed
-    releasable            = $signed
+    releasable            = $releasable
+    distributionBlockers  = $distributionBlockers
     installerBuilt        = $installerBuilt
     installerArtifact     = if ($installerArtifact) { Split-Path $installerArtifact -Leaf } else { $null }
     installerSha256       = $installerSha
@@ -223,17 +244,20 @@ $manifest = [ordered]@{
 }
 $manifest | ConvertTo-Json | Set-Content (Join-Path $OutDir "release-manifest-v$version$suffix.json") -Encoding UTF8
 
-if (-not $signed) {
-    @(
-        'NOT FOR PUBLIC RELEASE'
-        ''
-        'These artifacts are UNSIGNED. Windows SmartScreen will warn users, and the'
-        'files carry no publisher identity. Configure an Authenticode identity'
-        '(see Security\SIGNING.md) and re-run release.ps1 before distributing.'
-    ) | Set-Content (Join-Path $OutDir 'NOT-FOR-PUBLIC-RELEASE.txt') -Encoding UTF8
+if (-not $releasable) {
+    $reasons = @('NOT FOR PUBLIC RELEASE', '')
+    if (-not $signed) {
+        $reasons += 'These artifacts are UNSIGNED. Windows SmartScreen will warn users, and the'
+        $reasons += 'files carry no publisher identity. Configure an Authenticode identity'
+        $reasons += '(see Security\SIGNING.md) and re-run release.ps1 before distributing.'
+        $reasons += ''
+    }
+    foreach ($blocker in $distributionBlockers) { $reasons += "Licensing: $blocker"; $reasons += '' }
+    $reasons | Set-Content (Join-Path $OutDir 'NOT-FOR-PUBLIC-RELEASE.txt') -Encoding UTF8
 }
 
 Step "Release artifacts in $OutDir"
 Get-ChildItem $OutDir | ForEach-Object { Write-Host ("   " + $_.Name) }
 if (-not $signed) { Write-Host 'NOTE: UNSIGNED build - not publicly releasable.' -ForegroundColor Yellow }
+if ($distributionBlockers.Count -gt 0) { Write-Host 'NOTE: licensing blockers open - not publicly releasable.' -ForegroundColor Yellow }
 exit 0
