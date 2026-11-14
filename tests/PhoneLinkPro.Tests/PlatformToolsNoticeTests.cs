@@ -132,7 +132,7 @@ public sealed class PlatformToolsNoticeTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-        };
+        }.WithOwnModulePath();
         using var p = Process.Start(psi)!;
         var stdout = p.StandardOutput.ReadToEndAsync();
         var stderr = p.StandardError.ReadToEndAsync();
